@@ -74,14 +74,17 @@ class GenericParser:
         info = {"cpf": "", "name": ""}
 
         for i, line in enumerate(lines):
-            if "C.P.F." in line.upper():
+            if "cliente" in line.lower():
                 if i + 1 < len(lines):
-                    candidate = lines[i + 1].strip()
-                    match = re.search(r'(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})\s*(.*)', candidate)
+                    name_candidate = lines[i + 1].strip()
+                    if len(name_candidate.split()) >= 2:
+                        info["name"] = name_candidate
+            if "c.p.f." in line.lower():
+                if i + 1 < len(lines):
+                    cpf_line = lines[i + 1].strip()
+                    match = re.search(r'(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[-\s]?\d{2})', cpf_line)
                     if match:
-                        info["cpf"] = match.group(1).replace(' ', '').strip()
-                        info["name"] = match.group(2).strip()
-                break
+                        info["cpf"] = match.group(1).replace(" ", "").strip()
         return info
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
