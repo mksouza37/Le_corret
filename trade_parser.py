@@ -77,17 +77,49 @@ class GenericParser:
 
     def _extract_trades(self, text: str, tables: List[pd.DataFrame]) -> List[Dict]:
         trades = []
-        start = text.find(self.config.trade_start_marker)
-        end = text.find(self.config.trade_end_marker, start)
-        section = text[start:end] if start != -1 and end != -1 else ""
+
+        if "C/V Mercadoria Vencimento" in text:
+            start = text.find("C/V Mercadoria Vencimento")
+            end = text.find("+Custos BM&F", start)
+            section = text[start:end] if start != -1 and end != -1 else ""
+
+            pattern = re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])')
+            market_label = 'BMF'
+        else:
+            start = text.find(self.config.trade_start_marker)
+            end = text.find(self.config.trade_end_marker, start)
+            section = text[start:end] if start != -1 and end != -1 else ""
+
+            pattern = re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
+            market_label = 'A vista'
 
         for line in section.split('\n'):
             line = ' '.join(line.strip().split())
-            for pattern in self.config.trade_patterns:
-                match = pattern.match(line)
-                if match:
-                    trades.append(self._build_trade_from_match(match.groups()))
-                    break
+            match = pattern.match(line)
+            if match:
+                if market_label == 'BMF':
+                    trades.append({
+                        'market': market_label,
+                        'direction': match.group(1),
+                        'ticker': match.group(2),
+                        'maturity': match.group(3),
+                        'quantity': int(match.group(4)),
+                        'price': self._clean_numeric(match.group(5)),
+                        'trade_type': match.group(6),
+                        'value': self._clean_numeric(match.group(7)),
+                        'dc': match.group(8)
+                    })
+                else:
+                    trades.append({
+                        'market': market_label,
+                        'direction': match.group(2),
+                        'type': match.group(3),
+                        'ticker': match.group(4),
+                        'quantity': int(match.group(5)),
+                        'price': self._clean_numeric(match.group(6)),
+                        'value': self._clean_numeric(match.group(7)),
+                        'dc': match.group(8)
+                    })
 
         for table in tables:
             for _, row in table.iterrows():
@@ -96,32 +128,6 @@ class GenericParser:
                     trades.append(trade)
 
         return trades
-
-    def _build_trade_from_match(self, groups: tuple) -> Dict:
-        if len(groups) == 8:
-            return {
-                'market': 'A vista',
-                'direction': groups[1],
-                'type': groups[2],
-                'ticker': groups[3],
-                'quantity': int(groups[4]),
-                'price': self._clean_numeric(groups[5]),
-                'value': self._clean_numeric(groups[6]),
-                'dc': groups[7]
-            }
-        elif len(groups) == 7:
-            return {
-                'market': 'BMF',
-                'direction': groups[0],
-                'ticker': groups[1],
-                'maturity': groups[2],
-                'quantity': int(groups[3]),
-                'price': self._clean_numeric(groups[4]),
-                'trade_type': groups[5],
-                'value': self._clean_numeric(groups[6]),
-                'dc': ''
-            }
-        return {}
 
     def _build_trade_from_table(self, row: pd.Series) -> Optional[Dict]:
         try:
