@@ -20,7 +20,7 @@ class BrokerConfig:
 BTG_CONFIG = BrokerConfig(
     name="BTG",
     invoice_patterns=[
-        r"Nota\s+de\s+Negociação\s+N(?:º|o|°)\s*[:\-]?\s*(\d+)",  # handle Nº variations and optional colon/dash
+        r"Nota\s+de\s+Negociação\s+N(?:º|o|°)\s*[:\-]?\s*(\d+)",
         r"Nr\.?\s*nota\s*[:\-]?\s*(\d+)",
         r"Nota\s*[:\-]?\s*(\d+)"
     ],
@@ -46,14 +46,31 @@ class GenericParser:
         text = self._extract_text(file_path)
         tables = self._extract_tables(file_path)
 
-        result = {
+        tabula_info = self._extract_top_table_fields(file_path)
+
+        return {
             "broker": self.config.name,
-            "invoice": self._extract_first_match(text, self.config.invoice_patterns),
+            "invoice": tabula_info.get("invoice") or self._extract_first_match(text, self.config.invoice_patterns),
             "date": self._extract_first_match(text, self.config.date_patterns),
             "client": self._extract_client_info(text),
             "trades": self._extract_trades(text, tables)
         }
-        return result
+
+    def _extract_top_table_fields(self, file_path: str) -> Dict[str, str]:
+        try:
+            dfs = tabula.read_pdf(file_path, pages=1, multiple_tables=True, lattice=True)
+            for df in dfs:
+                text_df = df.astype(str).applymap(lambda x: x.strip())
+                for _, row in text_df.iterrows():
+                    row_str = " ".join(row.values)
+                    if re.search(r'\bnota\b', row_str, re.IGNORECASE):
+                        match = re.search(r'\b(\d{6,})\b', row_str)
+                        if match:
+                            return {"invoice": match.group(1)}
+            return {}
+        except Exception as e:
+            print(f"[Tabula Parsing Error] {e}")
+            return {}
 
     def _extract_text(self, file_path: str) -> str:
         with pdfplumber.open(file_path) as pdf:
@@ -67,7 +84,6 @@ class GenericParser:
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
         for pattern in patterns:
-            # Use re.DOTALL and re.MULTILINE for flexibility
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL | re.MULTILINE)
             if match:
                 invoice = match.group(1).strip()
@@ -89,14 +105,12 @@ class GenericParser:
             start = text.find("C/V Mercadoria Vencimento")
             end = text.find("+Custos BM&F", start)
             section = text[start:end] if start != -1 and end != -1 else ""
-
             pattern = re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])')
             market_label = 'BMF'
         else:
             start = text.find(self.config.trade_start_marker)
             end = text.find(self.config.trade_end_marker, start)
             section = text[start:end] if start != -1 and end != -1 else ""
-
             pattern = re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
             market_label = 'A vista'
 
@@ -143,7 +157,6 @@ class GenericParser:
             price = self._clean_numeric(str(row.get('Preço / Ajuste', '0')))
             value = self._clean_numeric(str(row.get('Valor Operação / Ajuste', '0')))
             direction = str(row.get('C/V', '')).strip().upper()
-
             market = 'BMF' if 'WIN' in ticker or 'IND' in ticker or 'FUT' in ticker else 'A vista'
 
             if ticker and quantity > 0:
@@ -172,7 +185,6 @@ class TradeProcessor:
     @classmethod
     def process_pdf(cls, file_path: str) -> List[Dict]:
         all_trades = []
-
         for parser in cls.PARSERS:
             result = parser.parse_pdf(file_path)
             for trade in result['trades']:
@@ -184,19 +196,16 @@ class TradeProcessor:
                     'client_cpf': result['client'].get('cpf', '')
                 })
                 all_trades.append(trade)
-
         return all_trades
 
     @classmethod
     def process_directory(cls, directory: str) -> pd.DataFrame:
         all_trades = []
-
         for filename in os.listdir(directory):
             if filename.lower().endswith('.pdf'):
                 filepath = os.path.join(directory, filename)
                 trades = cls.process_pdf(filepath)
                 all_trades.extend(trades)
-
         df = pd.DataFrame(all_trades)
         if not df.empty and 'invoice' not in df.columns:
             df['invoice'] = ''
