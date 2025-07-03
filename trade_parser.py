@@ -41,13 +41,13 @@ class GenericParser:
     def parse_pdf(self, file_path: str) -> Dict:
         text = self._extract_text(file_path)
         top_fields = self._extract_top_table_fields(text)
-        client_info = self._extract_top_client_fields(text)
+        cpf = self._extract_top_client_fields(text)
 
         return {
             "broker": self.config.name,
             "invoice": top_fields.get("invoice") or self._extract_first_match(text, self.config.invoice_patterns),
             "date": self._extract_first_match(text, self.config.date_patterns),
-            "client": client_info,
+            "client_cpf": cpf,
             "trades": self._extract_trades(text)
         }
 
@@ -69,23 +69,17 @@ class GenericParser:
                         break
         return info
 
-    def _extract_top_client_fields(self, text: str) -> Dict[str, str]:
+    def _extract_top_client_fields(self, text: str) -> str:
         lines = text.splitlines()
-        info = {"cpf": "", "name": ""}
-
         for i, line in enumerate(lines):
-            if "cliente" in line.lower():
-                if i + 1 < len(lines):
-                    name_candidate = lines[i + 1].strip()
-                    if len(name_candidate.split()) >= 2:
-                        info["name"] = name_candidate
-            if "c.p.f." in line.lower():
-                if i + 1 < len(lines):
-                    cpf_line = lines[i + 1].strip()
-                    match = re.search(r'(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[-\s]?\d{2})', cpf_line)
-                    if match:
-                        info["cpf"] = match.group(1).replace(" ", "").strip()
-        return info
+            lower_line = line.lower()
+            if "c.p.f" in lower_line or "cpf" in lower_line:
+                cpf_match = re.search(r'(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[-\s]?\d{2})', line)
+                if not cpf_match and i + 1 < len(lines):
+                    cpf_match = re.search(r'(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[-\s]?\d{2})', lines[i + 1])
+                if cpf_match:
+                    return cpf_match.group(1).replace(" ", "").strip()
+        return ""
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
         for pattern in patterns:
@@ -97,7 +91,7 @@ class GenericParser:
         return ""
 
     def _extract_client_info(self, text: str) -> Dict[str, str]:
-        return self._extract_top_client_fields(text)
+        return {"cpf": self._extract_top_client_fields(text)}
 
     def _extract_trades(self, text: str) -> List[Dict]:
         trades = []
@@ -164,8 +158,7 @@ class TradeProcessor:
                     'broker': result['broker'],
                     'date': result['date'],
                     'invoice': result['invoice'],
-                    'client_name': result['client'].get('name', ''),
-                    'client_cpf': result['client'].get('cpf', '')
+                    'client_cpf': result.get('client_cpf', '')
                 })
                 all_trades.append(trade)
         return all_trades
