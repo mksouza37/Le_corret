@@ -23,12 +23,9 @@ def upload_files():
 
         df = TradeProcessor.process_directory(UPLOAD_FOLDER)
 
-        for path in saved_files:
-            os.remove(path)
-
         if df is not None and not df.empty:
             cpf_value = df['client_cpf'].iloc[0].replace('.', '').replace('-', '')
-            output_filename = f"{OUTPUT_FILE_BASE} - Cpf: {cpf_value}.xlsx"
+            output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
 
             with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
                 workbook = writer.book
@@ -64,7 +61,14 @@ def upload_files():
                         worksheet.write_string(0, 0, client_line)
                         bmf_df[common_bmf_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
 
+            # Store filename for download route
             app.config['GENERATED_FILE'] = output_filename
+
+            # Clean up PDF files
+            for path in saved_files:
+                if os.path.exists(path):
+                    os.remove(path)
+
             return redirect(url_for('download_file'))
 
         return render_template('index.html')
@@ -75,7 +79,15 @@ def upload_files():
 def download_file():
     output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
     if os.path.exists(output_filename):
-        return send_file(output_filename, as_attachment=True, download_name=os.path.basename(output_filename))
+        response = send_file(output_filename, as_attachment=True, download_name=os.path.basename(output_filename))
+
+        # Delete file after sending
+        try:
+            os.remove(output_filename)
+        except Exception as e:
+            app.logger.error(f"Erro ao remover Excel: {e}")
+
+        return response
     else:
         return "Arquivo não encontrado", 404
 
