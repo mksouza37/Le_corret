@@ -74,13 +74,16 @@ class GenericParser:
         info = {"cpf": "", "name": ""}
 
         for i, line in enumerate(lines):
-            if "C.P.F./C.N.P.J/C.V.M./C.O.B." in line:
+            if "C.P.F." in line.upper():  # flexibiliza para diferentes formatos
                 if i + 1 < len(lines):
-                    match = re.match(r'(\d{3}\.\d{3}\.\d{3}-\d{2})(.+)', lines[i + 1].strip())
+                    candidate = lines[i + 1].strip()
+
+                    # Match CPF com ou sem espaços e nome em seguida
+                    match = re.search(r'(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})\s*(.*)', candidate)
                     if match:
-                        info["cpf"] = match.group(1).strip()
+                        info["cpf"] = match.group(1).replace(' ', '').strip()
                         info["name"] = match.group(2).strip()
-                break
+                    break
         return info
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
