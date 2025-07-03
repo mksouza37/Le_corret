@@ -191,6 +191,8 @@ class TradeProcessor:
                 all_trades.extend(trades)
 
         df = pd.DataFrame(all_trades)
+        if not df.empty and 'invoice' not in df.columns:
+            df['invoice'] = ''
         if not df.empty:
             df.sort_values(by=['broker', 'date'], inplace=True)
         return df

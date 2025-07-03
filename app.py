@@ -28,18 +28,24 @@ def upload_files():
 
         if df is not None and not df.empty:
             with pd.ExcelWriter(OUTPUT_FILE) as writer:
-                vista_cols = ['broker', 'date', 'market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
-                bmf_cols = ['broker', 'date', 'market', 'direction', 'ticker', 'maturity', 'quantity', 'price', 'trade_type', 'value', 'dc']
+                vista_cols = [
+                    'broker', 'invoice', 'date', 'market',
+                    'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc'
+                ]
+                bmf_cols = [
+                    'broker', 'invoice', 'date', 'market',
+                    'direction', 'ticker', 'maturity', 'quantity', 'price', 'trade_type', 'value', 'dc'
+                ]
 
                 if 'A vista' in df['market'].values:
                     vista_df = df[df['market'] == 'A vista']
-                    common_cols = [col for col in vista_cols if col in vista_df.columns]
-                    vista_df[common_cols].to_excel(writer, sheet_name='A Vista', index=False)
+                    common_vista_cols = [col for col in vista_cols if col in vista_df.columns]
+                    vista_df[common_vista_cols].to_excel(writer, sheet_name='A Vista', index=False)
 
                 if 'BMF' in df['market'].values:
                     bmf_df = df[df['market'] == 'BMF']
-                    common_cols = [col for col in bmf_cols if col in bmf_df.columns]
-                    bmf_df[common_cols].to_excel(writer, sheet_name='BMF', index=False)
+                    common_bmf_cols = [col for col in bmf_cols if col in bmf_df.columns]
+                    bmf_df[common_bmf_cols].to_excel(writer, sheet_name='BMF', index=False)
 
             return redirect(url_for('download_file'))
 
