@@ -81,17 +81,20 @@ class GenericParser:
         return ""
 
     def _extract_client_info(self, text: str) -> Dict[str, str]:
-        info = {}
-        cpf_match = re.search(self.config.client_patterns['cpf'], text, re.IGNORECASE)
-        name_match = re.search(self.config.client_patterns['name'], text, re.IGNORECASE)
+        lines = text.splitlines()
+        cpf, name = "", ""
 
-        info['cpf'] = cpf_match.group(1).strip() if cpf_match else ""
-        if name_match:
-            name = name_match.group(2).strip()
-            info['name'] = name
-        else:
-            info['name'] = ""
-        return info
+        for i, line in enumerate(lines):
+            if "C.P.F./C.N.P.J/C.V.M./C.O.B." in line:
+                if i + 1 < len(lines):
+                    below = lines[i + 1].strip()
+                    match = re.match(r'(\d{3}\.\d{3}\.\d{3}-\d{2})(.+)', below)
+                    if match:
+                        cpf = match.group(1).strip()
+                        name = match.group(2).strip()
+                break
+
+        return {"cpf": cpf, "name": name}
 
     def _extract_trades(self, text: str) -> List[Dict]:
         trades = []
