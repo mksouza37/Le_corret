@@ -19,7 +19,11 @@ class BrokerConfig:
 
 BTG_CONFIG = BrokerConfig(
     name="BTG",
-    invoice_patterns=[r"Nota\s+de\s+Negociação\s+Nº\s*(\d+)", r"Nr\. nota\s*(\d+)"],
+    invoice_patterns=[
+        r"Nota\s+de\s+Negociação\s+N(?:º|o|°)\s*[:\-]?\s*(\d+)",  # handle Nº variations and optional colon/dash
+        r"Nr\.?\s*nota\s*[:\-]?\s*(\d+)",
+        r"Nota\s*[:\-]?\s*(\d+)"
+    ],
     date_patterns=[r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
     client_patterns={
         "name": r"Cliente\s+\d+\s+([A-Z\s]+)\n",
@@ -63,9 +67,12 @@ class GenericParser:
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+            # Use re.DOTALL and re.MULTILINE for flexibility
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL | re.MULTILINE)
             if match:
-                return match.group(1)
+                invoice = match.group(1).strip()
+                if invoice:
+                    return invoice
         return ""
 
     def _extract_client_info(self, text: str) -> Dict[str, str]:
