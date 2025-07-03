@@ -2,7 +2,6 @@ import os
 import re
 import pdfplumber
 import pandas as pd
-from tabula.io import read_pdf
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 
@@ -20,20 +19,20 @@ class BrokerConfig:
 BTG_CONFIG = BrokerConfig(
     name="BTG",
     invoice_patterns=[
-        r"Nota\s+de\s+Negociação\s+N(?:º|o|°)\s*[:\-]?\s*(\d+)",
+        r"Nota\s+de\s+Negocia\u00e7\u00e3o\s+N(?:\u00ba|o|\u00b0)\s*[:\-]?\s*(\d+)",
         r"Nr\.?\s*nota\s*[:\-]?\s*(\d+)",
         r"Nota\s*[:\-]?\s*(\d+)"
     ],
-    date_patterns=[r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
+    date_patterns=[r'Data\s+preg\u00e3o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
     client_patterns={
         "name": r"Cliente\s+\d+\s+([A-Z\s]+)\n",
         "cpf": r"CPF[./\s]*(\d{3}\.\d{3}\.\d{3}-\d{2})"
     },
-    trade_start_marker="Negócios realizados",
-    trade_end_marker="Resumo dos Negócios",
+    trade_start_marker="Neg\u00f3cios realizados",
+    trade_end_marker="Resumo dos Neg\u00f3cios",
     trade_patterns=[
         re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])'),
-        re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
+        re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC]')
     ],
     columns=['market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
 )
@@ -44,43 +43,33 @@ class GenericParser:
 
     def parse_pdf(self, file_path: str) -> Dict:
         text = self._extract_text(file_path)
-        tables = self._extract_tables(file_path)
-
-        tabula_info = self._extract_top_table_fields(file_path)
+        top_fields = self._extract_top_table_fields(text)
 
         return {
             "broker": self.config.name,
-            "invoice": tabula_info.get("invoice") or self._extract_first_match(text, self.config.invoice_patterns),
+            "invoice": top_fields.get("invoice") or self._extract_first_match(text, self.config.invoice_patterns),
             "date": self._extract_first_match(text, self.config.date_patterns),
             "client": self._extract_client_info(text),
-            "trades": self._extract_trades(text, tables)
+            "trades": self._extract_trades(text)
         }
-
-    def _extract_top_table_fields(self, file_path: str) -> Dict[str, str]:
-        try:
-            dfs = read_pdf(file_path, pages=1, multiple_tables=True, lattice=True)
-            for df in dfs:
-                text_df = df.astype(str).applymap(lambda x: x.strip())
-                for _, row in text_df.iterrows():
-                    row_str = " ".join(row.values)
-                    if re.search(r'\bnota\b', row_str, re.IGNORECASE):
-                        match = re.search(r'\b(\d{6,})\b', row_str)
-                        if match:
-                            return {"invoice": match.group(1)}
-            return {}
-        except Exception as e:
-            print(f"[Tabula Parsing Error] {e}")
-            return {}
 
     def _extract_text(self, file_path: str) -> str:
         with pdfplumber.open(file_path) as pdf:
             return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-    def _extract_tables(self, file_path: str) -> List[pd.DataFrame]:
-        try:
-            return tabula.read_pdf(file_path, pages='all', multiple_tables=True, lattice=True)
-        except:
-            return []
+    def _extract_top_table_fields(self, text: str) -> Dict[str, str]:
+        lines = text.splitlines()
+        info = {}
+
+        for i, line in enumerate(lines):
+            line_clean = line.strip().lower()
+            if "nr. nota" in line_clean or "nr nota" in line_clean or "nº nota" in line_clean:
+                if i + 1 < len(lines):
+                    invoice_candidate = re.search(r'\d{5,}', lines[i + 1])
+                    if invoice_candidate:
+                        info['invoice'] = invoice_candidate.group(0)
+                        break
+        return info
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
         for pattern in patterns:
@@ -98,7 +87,7 @@ class GenericParser:
             info[key] = match.group(1).strip() if match else ""
         return info
 
-    def _extract_trades(self, text: str, tables: List[pd.DataFrame]) -> List[Dict]:
+    def _extract_trades(self, text: str) -> List[Dict]:
         trades = []
 
         if "C/V Mercadoria Vencimento" in text:
@@ -142,36 +131,7 @@ class GenericParser:
                         'dc': match.group(8)
                     })
 
-        for table in tables:
-            for _, row in table.iterrows():
-                trade = self._build_trade_from_table(row)
-                if trade:
-                    trades.append(trade)
-
         return trades
-
-    def _build_trade_from_table(self, row: pd.Series) -> Optional[Dict]:
-        try:
-            ticker = str(row.get('Especificação do título') or row.get('Mercadoria', '')).strip()
-            quantity = int(str(row.get('Quantidade', '0')).replace('.', '').replace(',', '').strip() or 0)
-            price = self._clean_numeric(str(row.get('Preço / Ajuste', '0')))
-            value = self._clean_numeric(str(row.get('Valor Operação / Ajuste', '0')))
-            direction = str(row.get('C/V', '')).strip().upper()
-            market = 'BMF' if 'WIN' in ticker or 'IND' in ticker or 'FUT' in ticker else 'A vista'
-
-            if ticker and quantity > 0:
-                return {
-                    'market': market,
-                    'direction': direction,
-                    'ticker': ticker,
-                    'quantity': quantity,
-                    'price': price,
-                    'value': value,
-                    'dc': str(row.get('D/C', '')).strip()
-                }
-        except:
-            return None
-        return None
 
     def _clean_numeric(self, value: str) -> float:
         try:
