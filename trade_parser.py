@@ -29,7 +29,7 @@ BTG_CONFIG = BrokerConfig(
     trade_end_marker="Resumo dos Negócios",
     trade_patterns=[
         re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])'),
-        re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
+        re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
     ],
     columns=['market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
 )
@@ -98,18 +98,18 @@ class GenericParser:
         return trades
 
     def _build_trade_from_match(self, groups: tuple) -> Dict:
-        if len(groups) == 7:
+        if len(groups) == 8:
             return {
                 'market': 'A vista',
-                'direction': groups[0],
-                'type': groups[1],
-                'ticker': groups[2],
-                'quantity': int(groups[3]),
-                'price': self._clean_numeric(groups[4]),
-                'value': self._clean_numeric(groups[5]),
-                'dc': groups[6]
+                'direction': groups[1],
+                'type': groups[2],
+                'ticker': groups[3],
+                'quantity': int(groups[4]),
+                'price': self._clean_numeric(groups[5]),
+                'value': self._clean_numeric(groups[6]),
+                'dc': groups[7]
             }
-        elif len(groups) == 8:
+        elif len(groups) == 7:
             return {
                 'market': 'BMF',
                 'direction': groups[0],
@@ -119,7 +119,7 @@ class GenericParser:
                 'price': self._clean_numeric(groups[4]),
                 'trade_type': groups[5],
                 'value': self._clean_numeric(groups[6]),
-                'dc': groups[7]
+                'dc': ''
             }
         return {}
 
@@ -131,9 +131,11 @@ class GenericParser:
             value = self._clean_numeric(str(row.get('Valor Operação / Ajuste', '0')))
             direction = str(row.get('C/V', '')).strip().upper()
 
+            market = 'BMF' if 'WIN' in ticker or 'IND' in ticker or 'FUT' in ticker else 'A vista'
+
             if ticker and quantity > 0:
                 return {
-                    'market': 'A vista' if 'VISTA' in str(row.values).upper() else 'BMF',
+                    'market': market,
                     'direction': direction,
                     'ticker': ticker,
                     'quantity': quantity,
