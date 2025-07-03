@@ -19,12 +19,12 @@ class BrokerConfig:
 BTG_CONFIG = BrokerConfig(
     name="BTG",
     invoice_patterns=[
-        r"Nota\s+de\s+Negociação\s+N(?:º|o|°)\s*[:\-]?\s*(\d+)",
+        r"Nota\s+de\s+Negociação\s+N(?:º|o|\u00b0)\s*[:\-]?\s*(\d+)",
         r"Nr\.?\s*nota\s*[:\-]?\s*(\d+)",
         r"Nota\s*[:\-]?\s*(\d+)"
     ],
     date_patterns=[r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
-    client_patterns={},  # não mais usado diretamente
+    client_patterns={},
     trade_start_marker="Negócios realizados",
     trade_end_marker="Resumo dos Negócios",
     trade_patterns=[
@@ -74,16 +74,14 @@ class GenericParser:
         info = {"cpf": "", "name": ""}
 
         for i, line in enumerate(lines):
-            if "C.P.F." in line.upper():  # flexibiliza para diferentes formatos
+            if "C.P.F." in line.upper():
                 if i + 1 < len(lines):
                     candidate = lines[i + 1].strip()
-
-                    # Match CPF com ou sem espaços e nome em seguida
                     match = re.search(r'(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})\s*(.*)', candidate)
                     if match:
                         info["cpf"] = match.group(1).replace(' ', '').strip()
                         info["name"] = match.group(2).strip()
-                    break
+                break
         return info
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
