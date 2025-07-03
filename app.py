@@ -27,7 +27,9 @@ def upload_files():
             os.remove(path)
 
         if df is not None and not df.empty:
-            with pd.ExcelWriter(OUTPUT_FILE) as writer:
+            with pd.ExcelWriter(OUTPUT_FILE, engine='xlsxwriter') as writer:
+                workbook = writer.book
+
                 vista_cols = [
                     'broker', 'invoice', 'date', 'market',
                     'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc'
@@ -39,13 +41,25 @@ def upload_files():
 
                 if 'A vista' in df['market'].values:
                     vista_df = df[df['market'] == 'A vista']
-                    common_vista_cols = [col for col in vista_cols if col in vista_df.columns]
-                    vista_df[common_vista_cols].to_excel(writer, sheet_name='A Vista', index=False)
+                    if not vista_df.empty:
+                        sheet_name = 'A Vista'
+                        client_info = vista_df[['client_name', 'client_cpf']].iloc[0]
+                        client_line = f"Cliente: {client_info['client_name']}   CPF: {client_info['client_cpf']}"
+                        common_vista_cols = [col for col in vista_cols if col in vista_df.columns]
+                        worksheet = workbook.add_worksheet(sheet_name)
+                        worksheet.write_string(0, 0, client_line)
+                        vista_df[common_vista_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
 
                 if 'BMF' in df['market'].values:
                     bmf_df = df[df['market'] == 'BMF']
-                    common_bmf_cols = [col for col in bmf_cols if col in bmf_df.columns]
-                    bmf_df[common_bmf_cols].to_excel(writer, sheet_name='BMF', index=False)
+                    if not bmf_df.empty:
+                        sheet_name = 'BMF'
+                        client_info = bmf_df[['client_name', 'client_cpf']].iloc[0]
+                        client_line = f"Cliente: {client_info['client_name']}   CPF: {client_info['client_cpf']}"
+                        common_bmf_cols = [col for col in bmf_cols if col in bmf_df.columns]
+                        worksheet = workbook.add_worksheet(sheet_name)
+                        worksheet.write_string(0, 0, client_line)
+                        bmf_df[common_bmf_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
 
             return redirect(url_for('download_file'))
 
