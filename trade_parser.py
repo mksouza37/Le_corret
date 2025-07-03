@@ -38,7 +38,193 @@ class BrokerParser:
             return 0.0
         return float(value.replace('.', '').replace(',', '.'))
 
-# Parsers for each broker (similar to original code, omitted here for brevity)
+class ItauParser(BrokerParser):
+    BROKER_NAME = "ITAÚCORRETORA"
+
+    @classmethod
+    def extract_date(cls, text: str) -> Optional[str]:
+        match = re.search(r'Data Pregão\s*\n?\s*\d+\s+\d+\s+(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    @classmethod
+    def extract_trades(cls, text: str) -> List[Dict]:
+        trades = []
+        section = cls._find_trade_section(text)
+        if not section:
+            return trades
+        for line in section.split('\n'):
+            parts = line.split()
+            if len(parts) >= 8 and parts[0] == 'BOVESPA':
+                try:
+                    idx = 3
+                    ticker_parts = []
+                    while idx < len(parts) and not parts[idx].replace('.', '').replace(',', '').isdigit():
+                        ticker_parts.append(parts[idx])
+                        idx += 1
+                    trades.append({
+                        'market': 'A vista',
+                        'direction': parts[1],
+                        'type': parts[2],
+                        'ticker': ' '.join(ticker_parts),
+                        'quantity': int(parts[idx]),
+                        'price': cls.clean_numeric(parts[idx+1]),
+                        'value': cls.clean_numeric(parts[idx+2]),
+                        'dc': parts[idx+3] if idx+3 < len(parts) else ""
+                    })
+                except:
+                    continue
+        return trades
+
+    @classmethod
+    def _find_trade_section(cls, text: str) -> str:
+        start = text.find("Negócios Realizados")
+        if start == -1:
+            start = text.find("Q Negociação C/V Tipo Mercado")
+        end = text.find("Resumo de negócios", start)
+        return text[start:end] if start != -1 and end != -1 else ""
+
+class AgoraParser(BrokerParser):
+    BROKER_NAME = "AGORA"
+
+    @classmethod
+    def extract_date(cls, text: str) -> Optional[str]:
+        match = re.search(r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1)
+        match_fallback = re.search(r'(\d{2}/\d{2}/\d{4})', text)
+        return match_fallback.group(1) if match_fallback else None
+
+    @classmethod
+    def extract_trades(cls, text: str) -> List[Dict]:
+        trades = []
+        section = cls._find_trade_section(text)
+        pattern = re.compile(r'^B3\s+RV\s+LISTADO\s+([CV])\s+(FRACIONARIO|VISTA)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$')
+        for line in section.split('\n'):
+            line = ' '.join(line.strip().split())
+            match = pattern.match(line)
+            if match:
+                trades.append({
+                    'market': 'A vista',
+                    'direction': match.group(1),
+                    'type': match.group(2),
+                    'ticker': match.group(3),
+                    'quantity': int(match.group(4)),
+                    'price': cls.clean_numeric(match.group(5)),
+                    'value': cls.clean_numeric(match.group(6)),
+                    'dc': match.group(7)
+                })
+        return trades
+
+    @classmethod
+    def _find_trade_section(cls, text: str) -> str:
+        start = text.find("Negocios Realizados")
+        if start == -1:
+            start = text.find("Negócios Realizados")
+        end = text.find("Resumo dos Negócios", start)
+        return text[start:end] if start != -1 and end != -1 else ""
+
+class XPParser(BrokerParser):
+    BROKER_NAME = "XP INVESTIMENTOS"
+
+    @classmethod
+    def extract_date(cls, text: str) -> Optional[str]:
+        match = re.search(r'Data pregão[\s\S]*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    @classmethod
+    def extract_trades(cls, text: str) -> List[Dict]:
+        trades = []
+        section = cls._find_trade_section(text)
+        pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$')
+        for line in section.split('\n'):
+            line = ' '.join(line.strip().split())
+            match = pattern.match(line)
+            if match:
+                trades.append({
+                    'market': 'A vista',
+                    'direction': match.group(1),
+                    'type': match.group(2),
+                    'ticker': match.group(3),
+                    'quantity': int(match.group(4)),
+                    'price': cls.clean_numeric(match.group(5)),
+                    'value': cls.clean_numeric(match.group(6)),
+                    'dc': match.group(7)
+                })
+        return trades
+
+    @classmethod
+    def _find_trade_section(cls, text: str) -> str:
+        start = text.find("Negócios realizados")
+        end = text.find("Resumo dos Negócios", start)
+        return text[start:end] if start != -1 and end != -1 else ""
+
+class BTGParser(BrokerParser):
+    BROKER_NAME = "BTG"
+
+    @classmethod
+    def extract_date(cls, text: str) -> Optional[str]:
+        match = re.search(r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1)
+        match_fallback = re.search(r'(\d{2}/\d{2}/\d{4})', text)
+        return match_fallback.group(1) if match_fallback else None
+
+    @classmethod
+    def is_bmf(cls, text: str) -> bool:
+        return "C/V Mercadoria Vencimento" in text
+
+    @classmethod
+    def extract_trades(cls, text: str) -> List[Dict]:
+        trades = []
+        if cls.is_bmf(text):
+            section = cls._find_bmf_section(text)
+            pattern = re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])')
+            market_label = 'BMF'
+        else:
+            section = cls._find_vista_section(text)
+            pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
+            market_label = 'A vista'
+
+        for line in section.split('\n'):
+            line = ' '.join(line.strip().split())
+            match = pattern.match(line)
+            if match:
+                if market_label == 'BMF':
+                    trades.append({
+                        'market': market_label,
+                        'direction': match.group(1),
+                        'ticker': match.group(2),
+                        'maturity': match.group(3),
+                        'quantity': int(match.group(4)),
+                        'price': cls.clean_numeric(match.group(5)),
+                        'trade_type': match.group(6),
+                        'value': cls.clean_numeric(match.group(7)),
+                        'dc': match.group(8)
+                    })
+                else:
+                    trades.append({
+                        'market': market_label,
+                        'direction': match.group(1),
+                        'type': match.group(2),
+                        'ticker': match.group(3),
+                        'quantity': int(match.group(4)),
+                        'price': cls.clean_numeric(match.group(5)),
+                        'value': cls.clean_numeric(match.group(6)),
+                        'dc': match.group(7)
+                    })
+        return trades
+
+    @classmethod
+    def _find_bmf_section(cls, text: str) -> str:
+        start = text.find("C/V Mercadoria Vencimento")
+        end = text.find("+Custos BM&F", start)
+        return text[start:end] if start != -1 and end != -1 else ""
+
+    @classmethod
+    def _find_vista_section(cls, text: str) -> str:
+        start = text.find("Negócios realizados")
+        end = text.find("Resumo dos Negócios", start)
+        return text[start:end] if start != -1 and end != -1 else ""
 
 class TradeProcessor:
     PARSERS = [ItauParser, AgoraParser, XPParser, BTGParser]
