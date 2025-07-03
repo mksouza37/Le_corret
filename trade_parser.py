@@ -25,8 +25,8 @@ BTG_CONFIG = BrokerConfig(
     ],
     date_patterns=[r'Data\s+preg\u00e3o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
     client_patterns={
-        "name": r"Cliente\s+\d+\s+([A-Z\s]+)\n",
-        "cpf": r"CPF[./\s]*(\d{3}\.\d{3}\.\d{3}-\d{2})"
+        "name": r"C\.P\.F\./C\.N\.P\.J/C\.V\.M\./C\.O\.B\.\s*(\d{3}\.\d{3}\.\d{3}-\d{2})([A-Z\s]+)",
+        "cpf": r"C\.P\.F\./C\.N\.P\.J/C\.V\.M\./C\.O\.B\.\s*(\d{3}\.\d{3}\.\d{3}-\d{2})"
     },
     trade_start_marker="Neg\u00f3cios realizados",
     trade_end_marker="Resumo dos Neg\u00f3cios",
@@ -82,9 +82,15 @@ class GenericParser:
 
     def _extract_client_info(self, text: str) -> Dict[str, str]:
         info = {}
-        for key, pattern in self.config.client_patterns.items():
-            match = re.search(pattern, text, re.IGNORECASE)
-            info[key] = match.group(1).strip() if match else ""
+        cpf_match = re.search(self.config.client_patterns['cpf'], text, re.IGNORECASE)
+        name_match = re.search(self.config.client_patterns['name'], text, re.IGNORECASE)
+
+        info['cpf'] = cpf_match.group(1).strip() if cpf_match else ""
+        if name_match:
+            name = name_match.group(2).strip()
+            info['name'] = name
+        else:
+            info['name'] = ""
         return info
 
     def _extract_trades(self, text: str) -> List[Dict]:
