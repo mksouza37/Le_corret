@@ -32,7 +32,7 @@ BTG_CONFIG = BrokerConfig(
     trade_end_marker="Resumo dos Neg\u00f3cios",
     trade_patterns=[
         re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])'),
-        re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC]')
+        re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
     ],
     columns=['market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
 )
