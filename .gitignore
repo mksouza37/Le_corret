@@ -5,3 +5,4 @@ __pycache__/
 *.log
 melhorias.txt
 parser_BK.py
+app_BK.py

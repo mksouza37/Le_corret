@@ -23,27 +23,27 @@ def upload_files():
 
         df = TradeProcessor.process_directory(UPLOAD_FOLDER)
 
-        if df is not None and not df.empty:
-            print('Trades selecionados com sucesso.')
-        else:
-            print('Nenhum trade encontrado.')
-
         for path in saved_files:
             os.remove(path)
 
-        if not df.empty:
+        if df is not None and not df.empty:
             with pd.ExcelWriter(OUTPUT_FILE) as writer:
                 vista_cols = ['broker', 'date', 'market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
                 bmf_cols = ['broker', 'date', 'market', 'direction', 'ticker', 'maturity', 'quantity', 'price', 'trade_type', 'value', 'dc']
 
                 if 'A vista' in df['market'].values:
-                    df[df['market'] == 'A vista'][vista_cols].to_excel(writer, sheet_name='A Vista', index=False)
+                    vista_df = df[df['market'] == 'A vista']
+                    common_cols = [col for col in vista_cols if col in vista_df.columns]
+                    vista_df[common_cols].to_excel(writer, sheet_name='A Vista', index=False)
+
                 if 'BMF' in df['market'].values:
-                    df[df['market'] == 'BMF'][bmf_cols].to_excel(writer, sheet_name='BMF', index=False)
+                    bmf_df = df[df['market'] == 'BMF']
+                    common_cols = [col for col in bmf_cols if col in bmf_df.columns]
+                    bmf_df[common_cols].to_excel(writer, sheet_name='BMF', index=False)
 
             return redirect(url_for('download_file'))
 
-        return render_template('index.html')  # show page again if no trades
+        return render_template('index.html')
 
     return render_template('index.html')
 

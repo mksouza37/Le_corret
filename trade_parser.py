@@ -2,325 +2,187 @@ import os
 import re
 import pdfplumber
 import pandas as pd
+import tabula
+from dataclasses import dataclass
 from typing import List, Dict, Optional
 
-class BrokerParser:
-    BROKER_NAME = "GENERIC"
+@dataclass
+class BrokerConfig:
+    name: str
+    invoice_patterns: List[str]
+    date_patterns: List[str]
+    client_patterns: Dict[str, str]
+    trade_start_marker: str
+    trade_end_marker: str
+    trade_patterns: List[re.Pattern]
+    columns: List[str]
 
-    @classmethod
-    def match_broker(cls, text: str) -> bool:
-        return cls.BROKER_NAME.upper() in text.upper()
+BTG_CONFIG = BrokerConfig(
+    name="BTG",
+    invoice_patterns=[r"Nota\s+de\s+Negociação\s+Nº\s*(\d+)", r"Nr\. nota\s*(\d+)"],
+    date_patterns=[r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
+    client_patterns={
+        "name": r"Cliente\s+\d+\s+([A-Z\s]+)\n",
+        "cpf": r"CPF[./\s]*(\d{3}\.\d{3}\.\d{3}-\d{2})"
+    },
+    trade_start_marker="Negócios realizados",
+    trade_end_marker="Resumo dos Negócios",
+    trade_patterns=[
+        re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])'),
+        re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
+    ],
+    columns=['market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
+)
 
-    @classmethod
-    def extract_date(cls, text: str) -> Optional[str]:
-        raise NotImplementedError
+class GenericParser:
+    def __init__(self, config: BrokerConfig):
+        self.config = config
 
-    '''
-    @classmethod
-    def extract_invoice_number(cls, text: str) -> Optional[str]:
-        match = re.search(r'Nr\.?\s*nota\s*(\d+)', text, re.IGNORECASE)
-        if not match:
-            match = re.search(r'nota\s*de\s*corretagem\s*(\d+)', text, re.IGNORECASE)
-        return match.group(1) if match else None
-    '''
+    def parse_pdf(self, file_path: str) -> Dict:
+        text = self._extract_text(file_path)
+        tables = self._extract_tables(file_path)
 
-    @classmethod
-    def extract_invoice_number(cls, text: str) -> Optional[str]:
-        # Try patterns in order of specificity
-        patterns = [
-            r'Nr\.?\s*nota\s*[:\|]?\s*(\d+)\s*[\/\|]',  # For cases with separators
-            r'Nr\.?\s*nota\s*(\d+)\s+Folha',  # Followed by "Folha"
-            r'N\.\s*atual\s*(\d+)',  # XP format variation
-            r'Nr\.Nota\s*(\d+)',  # XP format
-            r'Nr\.?\s*nota\s*(\d+)',  # Basic pattern
-            r'nota\s*de\s*corretagem\s*(\d+)',  # Alternative format
-            r'Nr\.?\s*Nota\s*(\d+/\d+)',  # For ITAÚ's 1/2026 format
-            r'NOTA\s*DE\s*NEGOCIAÇÃO\s*Nr\.?\s*(\d+)'  # XP header format
-        ]
+        result = {
+            "broker": self.config.name,
+            "invoice": self._extract_first_match(text, self.config.invoice_patterns),
+            "date": self._extract_first_match(text, self.config.date_patterns),
+            "client": self._extract_client_info(text),
+            "trades": self._extract_trades(text, tables)
+        }
+        return result
 
+    def _extract_text(self, file_path: str) -> str:
+        with pdfplumber.open(file_path) as pdf:
+            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+    def _extract_tables(self, file_path: str) -> List[pd.DataFrame]:
+        try:
+            return tabula.read_pdf(file_path, pages='all', multiple_tables=True, lattice=True)
+        except:
+            return []
+
+    def _extract_first_match(self, text: str, patterns: List[str]) -> str:
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                # Handle cases like "1/2026" by taking just the first part
-                if '/' in match.group(1):
-                    return match.group(1).split('/')[0]
                 return match.group(1)
+        return ""
 
-        # Additional fallback for XP notes where number might be on next line
-        if "NOTA DE NEGOCIAÇÃO" in text:
-            lines = text.split('\n')
-            for i, line in enumerate(lines):
-                if "NOTA DE NEGOCIAÇÃO" in line and i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if next_line.isdigit():
-                        return next_line
+    def _extract_client_info(self, text: str) -> Dict[str, str]:
+        info = {}
+        for key, pattern in self.config.client_patterns.items():
+            match = re.search(pattern, text, re.IGNORECASE)
+            info[key] = match.group(1).strip() if match else ""
+        return info
 
+    def _extract_trades(self, text: str, tables: List[pd.DataFrame]) -> List[Dict]:
+        trades = []
+        start = text.find(self.config.trade_start_marker)
+        end = text.find(self.config.trade_end_marker, start)
+        section = text[start:end] if start != -1 and end != -1 else ""
+
+        for line in section.split('\n'):
+            line = ' '.join(line.strip().split())
+            for pattern in self.config.trade_patterns:
+                match = pattern.match(line)
+                if match:
+                    trades.append(self._build_trade_from_match(match.groups()))
+                    break
+
+        for table in tables:
+            for _, row in table.iterrows():
+                trade = self._build_trade_from_table(row)
+                if trade:
+                    trades.append(trade)
+
+        return trades
+
+    def _build_trade_from_match(self, groups: tuple) -> Dict:
+        if len(groups) == 7:
+            return {
+                'market': 'A vista',
+                'direction': groups[0],
+                'type': groups[1],
+                'ticker': groups[2],
+                'quantity': int(groups[3]),
+                'price': self._clean_numeric(groups[4]),
+                'value': self._clean_numeric(groups[5]),
+                'dc': groups[6]
+            }
+        elif len(groups) == 8:
+            return {
+                'market': 'BMF',
+                'direction': groups[0],
+                'ticker': groups[1],
+                'maturity': groups[2],
+                'quantity': int(groups[3]),
+                'price': self._clean_numeric(groups[4]),
+                'trade_type': groups[5],
+                'value': self._clean_numeric(groups[6]),
+                'dc': groups[7]
+            }
+        return {}
+
+    def _build_trade_from_table(self, row: pd.Series) -> Optional[Dict]:
+        try:
+            ticker = str(row.get('Especificação do título') or row.get('Mercadoria', '')).strip()
+            quantity = int(str(row.get('Quantidade', '0')).replace('.', '').replace(',', '').strip() or 0)
+            price = self._clean_numeric(str(row.get('Preço / Ajuste', '0')))
+            value = self._clean_numeric(str(row.get('Valor Operação / Ajuste', '0')))
+            direction = str(row.get('C/V', '')).strip().upper()
+
+            if ticker and quantity > 0:
+                return {
+                    'market': 'A vista' if 'VISTA' in str(row.values).upper() else 'BMF',
+                    'direction': direction,
+                    'ticker': ticker,
+                    'quantity': quantity,
+                    'price': price,
+                    'value': value,
+                    'dc': str(row.get('D/C', '')).strip()
+                }
+        except:
+            return None
         return None
 
-    @classmethod
-    def extract_client_info(cls, text: str) -> Dict[str, str]:
-        cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})', text)
-        name_match = re.search(r'Cliente\s*\n\s*(.*?)\n', text, re.IGNORECASE)
-        cpf = cpf_match.group(1) if cpf_match else ""
-        name = name_match.group(1).strip().title() if name_match else ""
-        return {"client_name": name, "client_cpf": cpf}
-
-    @classmethod
-    def extract_trades(cls, text: str) -> List[Dict]:
-        raise NotImplementedError
-
-    @classmethod
-    def clean_numeric(cls, value: str) -> float:
-        if not value:
+    def _clean_numeric(self, value: str) -> float:
+        try:
+            return float(value.replace('.', '').replace(',', '.'))
+        except:
             return 0.0
-        return float(value.replace('.', '').replace(',', '.'))
-
-class ItauParser(BrokerParser):
-    BROKER_NAME = "ITAÚCORRETORA"
-
-    extract_invoice_number = BrokerParser.extract_invoice_number
-    extract_client_info = BrokerParser.extract_client_info
-
-    @classmethod
-    def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data Pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
-        return match.group(1) if match else None
-
-    @classmethod
-    def extract_trades(cls, text: str) -> List[Dict]:
-        trades = []
-        section = cls._find_trade_section(text)
-        for line in section.split('\n'):
-            parts = line.split()
-            if len(parts) >= 8 and parts[0] == 'BOVESPA':
-                try:
-                    idx = 3
-                    ticker_parts = []
-                    while idx < len(parts) and not parts[idx].replace('.', '').replace(',', '').isdigit():
-                        ticker_parts.append(parts[idx])
-                        idx += 1
-                    trades.append({
-                        'market': 'A vista',
-                        'direction': parts[1],
-                        'type': parts[2],
-                        'ticker': ' '.join(ticker_parts),
-                        'quantity': int(parts[idx]),
-                        'price': cls.clean_numeric(parts[idx+1]),
-                        'value': cls.clean_numeric(parts[idx+2]),
-                        'dc': parts[idx+3] if idx+3 < len(parts) else ""
-                    })
-                except:
-                    continue
-        return trades
-
-    @classmethod
-    def _find_trade_section(cls, text: str) -> str:
-        start = text.find("Negócios Realizados")
-        if start == -1:
-            start = text.find("Q Negociação C/V Tipo Mercado")
-        end = text.find("Resumo de negócios", start)
-        return text[start:end] if start != -1 and end != -1 else ""
-
-class AgoraParser(BrokerParser):
-    BROKER_NAME = "AGORA"
-
-    extract_invoice_number = BrokerParser.extract_invoice_number
-    extract_client_info = BrokerParser.extract_client_info
-
-    @classmethod
-    def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data\s+pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
-        return match.group(1) if match else None
-
-    @classmethod
-    def extract_trades(cls, text: str) -> List[Dict]:
-        trades = []
-        section = text[text.find("Negocios Realizados"):text.find("Resumo dos Negócios")]
-        pattern = re.compile(r'^B3\s+RV\s+LISTADO\s+([CV])\s+(FRACIONARIO|VISTA)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
-        for line in section.split('\n'):
-            line = ' '.join(line.strip().split())
-            match = pattern.match(line)
-            if match:
-                trades.append({
-                    'market': 'A vista',
-                    'direction': match.group(1),
-                    'type': match.group(2),
-                    'ticker': match.group(3),
-                    'quantity': int(match.group(4)),
-                    'price': cls.clean_numeric(match.group(5)),
-                    'value': cls.clean_numeric(match.group(6)),
-                    'dc': match.group(7)
-                })
-        return trades
-
-class XPParser(BrokerParser):
-    BROKER_NAME = "XP INVESTIMENTOS"
-
-    extract_invoice_number = BrokerParser.extract_invoice_number
-    extract_client_info = BrokerParser.extract_client_info
-
-    @classmethod
-    def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
-        return match.group(1) if match else None
-
-    @classmethod
-    def extract_trades(cls, text: str) -> List[Dict]:
-        trades = []
-        section = text[text.find("Negócios realizados"):text.find("Resumo dos Negócios")]
-        pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
-        for line in section.split('\n'):
-            line = ' '.join(line.strip().split())
-            match = pattern.match(line)
-            if match:
-                trades.append({
-                    'market': 'A vista',
-                    'direction': match.group(1),
-                    'type': match.group(2),
-                    'ticker': match.group(3),
-                    'quantity': int(match.group(4)),
-                    'price': cls.clean_numeric(match.group(5)),
-                    'value': cls.clean_numeric(match.group(6)),
-                    'dc': match.group(7)
-                })
-        return trades
-
-class BTGParser(BrokerParser):
-    BROKER_NAME = "BTG"
-
-    extract_invoice_number = BrokerParser.extract_invoice_number
-    extract_client_info = BrokerParser.extract_client_info
-
-    @classmethod
-    def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data\s+pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
-        return match.group(1) if match else None
-
-    @classmethod
-    def extract_trades(cls, text: str) -> List[Dict]:
-        trades = []
-        if "C/V Mercadoria Vencimento" in text:
-            section = text[text.find("C/V Mercadoria Vencimento"):text.find("+Custos", text.find("C/V Mercadoria Vencimento"))]
-            pattern = re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
-            market_label = 'BMF'
-        else:
-            section = text[text.find("Negócios realizados"):text.find("Resumo dos Negócios")]
-            pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
-            market_label = 'A vista'
-
-        for line in section.split('\n'):
-            line = ' '.join(line.strip().split())
-            match = pattern.match(line)
-            if match:
-                if market_label == 'BMF':
-                    trades.append({
-                        'market': market_label,
-                        'direction': match.group(1),
-                        'ticker': match.group(2),
-                        'maturity': match.group(3),
-                        'quantity': int(match.group(4)),
-                        'price': cls.clean_numeric(match.group(5)),
-                        'trade_type': match.group(6),
-                        'value': cls.clean_numeric(match.group(7)),
-                        'dc': match.group(8)
-                    })
-                else:
-                    trades.append({
-                        'market': market_label,
-                        'direction': match.group(1),
-                        'type': match.group(2),
-                        'ticker': match.group(3),
-                        'quantity': int(match.group(4)),
-                        'price': cls.clean_numeric(match.group(5)),
-                        'value': cls.clean_numeric(match.group(6)),
-                        'dc': match.group(7)
-                    })
-        return trades
 
 class TradeProcessor:
-    PARSERS = [ItauParser, AgoraParser, XPParser, BTGParser]
+    PARSERS = [GenericParser(BTG_CONFIG)]
 
     @classmethod
-    def normalize_text(cls, text: str) -> str:
-        """Normalize text for better pattern matching"""
-        # Replace multiple spaces with single space
-        text = re.sub(r'\s+', ' ', text)
-        # Remove special characters that might interfere
-        text = re.sub(r'[^\w\s./-]', '', text)
-        return text.strip()
-
-    @classmethod
-    def process_pdf(cls, file_path: str) -> Dict[str, any]:
+    def process_pdf(cls, file_path: str) -> List[Dict]:
         all_trades = []
-        client_info = {"client_name": "", "client_cpf": ""}
 
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if not page_text:
-                    continue
+        for parser in cls.PARSERS:
+            result = parser.parse_pdf(file_path)
+            for trade in result['trades']:
+                trade.update({
+                    'broker': result['broker'],
+                    'date': result['date'],
+                    'invoice': result['invoice'],
+                    'client_name': result['client'].get('name', ''),
+                    'client_cpf': result['client'].get('cpf', '')
+                })
+                all_trades.append(trade)
 
-                normalized_text = cls.normalize_text(page_text)
-
-                for parser in cls.PARSERS:
-                    if parser.match_broker(normalized_text):
-                        date = parser.extract_date(normalized_text)
-                        invoice = parser.extract_invoice_number(normalized_text)
-                        info = parser.extract_client_info(normalized_text)
-                        if info['client_name']:
-                            client_info = info
-                        trades = parser.extract_trades(normalized_text)
-                        for trade in trades:
-                            trade['broker'] = parser.BROKER_NAME
-                            trade['date'] = date
-                            trade['invoice'] = invoice
-                        all_trades.extend(trades)
-                        break
-
-        return {"trades": all_trades, "client_info": client_info}
+        return all_trades
 
     @classmethod
     def process_directory(cls, directory: str) -> pd.DataFrame:
         all_trades = []
-        client_name = ""
-        client_cpf = ""
 
         for filename in os.listdir(directory):
             if filename.lower().endswith('.pdf'):
                 filepath = os.path.join(directory, filename)
-                print(f"Processing {filename}...")
-                result = cls.process_pdf(filepath)
-                if not client_name and result['client_info']['client_name']:
-                    client_name = result['client_info']['client_name']
-                    client_cpf = result['client_info']['client_cpf']
-                all_trades.extend(result['trades'])
-
-        if not all_trades:
-            print("No trades found in PDF files")
-            return None
+                trades = cls.process_pdf(filepath)
+                all_trades.extend(trades)
 
         df = pd.DataFrame(all_trades)
-        desired_order = ['broker', 'date', 'invoice', 'market'] + [col for col in df.columns if col not in ['broker', 'date', 'invoice', 'market']]
-        df = df[desired_order]
-        df.sort_values(by=['broker', 'date'], inplace=True)
-
-        output_file = "consolidated_trades.xlsx"
-        with pd.ExcelWriter(output_file) as writer:
-            client_info_df = pd.DataFrame([[client_name, client_cpf]], columns=['Client Name', 'CPF'])
-
-            vista_df = df[df['market'] == 'A vista']
-            bmf_df = df[df['market'] == 'BMF']
-
-            if not vista_df.empty:
-                client_info_df.to_excel(writer, sheet_name='A Vista', index=False, startrow=0)
-                vista_df.to_excel(writer, sheet_name='A Vista', index=False, startrow=2)
-
-            if not bmf_df.empty:
-                client_info_df.to_excel(writer, sheet_name='BMF', index=False, startrow=0)
-                bmf_df.to_excel(writer, sheet_name='BMF', index=False, startrow=2)
-
-        print(f"Saved {len(df)} trades to {output_file}")
+        if not df.empty:
+            df.sort_values(by=['broker', 'date'], inplace=True)
         return df
-
-if __name__ == "__main__":
-    TradeProcessor.process_directory("./")
