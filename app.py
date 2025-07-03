@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, render_template, redirect, url_for
+from flask import Flask, request, send_file, render_template, redirect, url_for, make_response
 import os
 import pandas as pd
 from trade_parser import TradeProcessor
@@ -61,33 +61,29 @@ def upload_files():
                         worksheet.write_string(0, 0, client_line)
                         bmf_df[common_bmf_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
 
-            # Store filename for download route
             app.config['GENERATED_FILE'] = output_filename
-
-            # Clean up PDF files
-            for path in saved_files:
-                if os.path.exists(path):
-                    os.remove(path)
-
             return redirect(url_for('download_file'))
 
-        return render_template('index.html')
+        return render_template('index.html', uploaded_files=[])
 
-    return render_template('index.html')
+    # GET method: show page with no files
+    return render_template('index.html', uploaded_files=[])
 
 @app.route('/download')
 def download_file():
     output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
     if os.path.exists(output_filename):
-        response = send_file(output_filename, as_attachment=True, download_name=os.path.basename(output_filename))
-
-        # Delete file after sending
         try:
-            os.remove(output_filename)
-        except Exception as e:
-            app.logger.error(f"Erro ao remover Excel: {e}")
-
-        return response
+            response = make_response(send_file(output_filename, as_attachment=True, download_name=os.path.basename(output_filename)))
+            return response
+        finally:
+            # Cleanup after download
+            try:
+                os.remove(output_filename)
+                for f in os.listdir(UPLOAD_FOLDER):
+                    os.remove(os.path.join(UPLOAD_FOLDER, f))
+            except Exception as e:
+                app.logger.error(f"Erro ao limpar arquivos: {e}")
     else:
         return "Arquivo não encontrado", 404
 
