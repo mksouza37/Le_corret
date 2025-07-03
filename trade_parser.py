@@ -17,7 +17,7 @@ class BrokerParser:
 
     @classmethod
     def extract_invoice_number(cls, text: str) -> Optional[str]:
-        match = re.search(r'Nr.?.*nota.*?(\d+)', text, re.IGNORECASE)
+        match = re.search(r'Nr.?\s*nota\s*(\d+)', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
@@ -40,6 +40,9 @@ class BrokerParser:
 
 class ItauParser(BrokerParser):
     BROKER_NAME = "ITAÚCORRETORA"
+
+    extract_invoice_number = BrokerParser.extract_invoice_number
+    extract_client_info = BrokerParser.extract_client_info
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
@@ -84,6 +87,9 @@ class ItauParser(BrokerParser):
 class AgoraParser(BrokerParser):
     BROKER_NAME = "AGORA"
 
+    extract_invoice_number = BrokerParser.extract_invoice_number
+    extract_client_info = BrokerParser.extract_client_info
+
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
         match = re.search(r'Data\s+pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
@@ -113,6 +119,9 @@ class AgoraParser(BrokerParser):
 class XPParser(BrokerParser):
     BROKER_NAME = "XP INVESTIMENTOS"
 
+    extract_invoice_number = BrokerParser.extract_invoice_number
+    extract_client_info = BrokerParser.extract_client_info
+
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
         match = re.search(r'Data pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
@@ -141,6 +150,9 @@ class XPParser(BrokerParser):
 
 class BTGParser(BrokerParser):
     BROKER_NAME = "BTG"
+
+    extract_invoice_number = BrokerParser.extract_invoice_number
+    extract_client_info = BrokerParser.extract_client_info
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
