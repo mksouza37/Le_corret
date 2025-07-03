@@ -43,8 +43,8 @@ def upload_files():
                     vista_df = df[df['market'] == 'A vista']
                     if not vista_df.empty:
                         sheet_name = 'A Vista'
-                        client_info = vista_df[['client_name', 'client_cpf']].iloc[0]
-                        client_line = f"Cliente: {client_info['client_name']}   CPF: {client_info['client_cpf']}"
+                        client_cpf = vista_df['client_cpf'].iloc[0]
+                        client_line = f"CPF: {client_cpf}"
                         common_vista_cols = [col for col in vista_cols if col in vista_df.columns]
                         worksheet = workbook.add_worksheet(sheet_name)
                         worksheet.write_string(0, 0, client_line)
@@ -54,8 +54,8 @@ def upload_files():
                     bmf_df = df[df['market'] == 'BMF']
                     if not bmf_df.empty:
                         sheet_name = 'BMF'
-                        client_info = bmf_df[['client_name', 'client_cpf']].iloc[0]
-                        client_line = f"Cliente: {client_info['client_name']}   CPF: {client_info['client_cpf']}"
+                        client_cpf = bmf_df['client_cpf'].iloc[0]
+                        client_line = f"CPF: {client_cpf}"
                         common_bmf_cols = [col for col in bmf_cols if col in bmf_df.columns]
                         worksheet = workbook.add_worksheet(sheet_name)
                         worksheet.write_string(0, 0, client_line)
