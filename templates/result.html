@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Resultado - Leitor de Notas</title>
+    <style>
+        body { font-family: Arial; background: #f0f4f7; padding: 30px; }
+        h2 { color: #27ae60; }
+        ul { background: #ecf0f1; padding: 10px; border-radius: 5px; }
+        .message { margin-top: 15px; font-weight: bold; color: #2980b9; }
+        .download { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h2>{{ message }}</h2>
+
+    <div>
+        <strong>Arquivos enviados:</strong>
+        <ul>
+            {% for name in file_names %}
+                <li>{{ name }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    {% if show_download %}
+        <div class="download">
+            <a href="{{ url_for('download_file') }}">📥 Baixar Excel</a>
+        </div>
+    {% endif %}
+</body>
+</html>
