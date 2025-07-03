@@ -17,15 +17,15 @@ class BrokerParser:
 
     @classmethod
     def extract_invoice_number(cls, text: str) -> Optional[str]:
-        match = re.search(r'Nr.?\s*nota\s*(\d+)', text, re.IGNORECASE)
+        match = re.search(r'Nr.?.*nota.*?(\d+)', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
     def extract_client_info(cls, text: str) -> Dict[str, str]:
-        name_match = re.search(r'(?i)(MARKUS SOUZA DO NASCIMENTO)', text)
         cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})', text)
-        name = name_match.group(1) if name_match else ""
+        name_match = re.search(r'(MARKUS SOUZA DO NASCIMENTO|RUI SERGIO RANDI JUNIOR)', text, re.IGNORECASE)
         cpf = cpf_match.group(1) if cpf_match else ""
+        name = name_match.group(1).title() if name_match else ""
         return {"client_name": name, "client_cpf": cpf}
 
     @classmethod
@@ -43,15 +43,13 @@ class ItauParser(BrokerParser):
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data Pregão\s*\n?\s*\d+\s+\d+\s+(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        match = re.search(r'Data Pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
     def extract_trades(cls, text: str) -> List[Dict]:
         trades = []
         section = cls._find_trade_section(text)
-        if not section:
-            return trades
         for line in section.split('\n'):
             parts = line.split()
             if len(parts) >= 8 and parts[0] == 'BOVESPA':
@@ -88,17 +86,14 @@ class AgoraParser(BrokerParser):
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            return match.group(1)
-        match_fallback = re.search(r'(\d{2}/\d{2}/\d{4})', text)
-        return match_fallback.group(1) if match_fallback else None
+        match = re.search(r'Data\s+pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        return match.group(1) if match else None
 
     @classmethod
     def extract_trades(cls, text: str) -> List[Dict]:
         trades = []
-        section = cls._find_trade_section(text)
-        pattern = re.compile(r'^B3\s+RV\s+LISTADO\s+([CV])\s+(FRACIONARIO|VISTA)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$')
+        section = text[text.find("Negocios Realizados"):text.find("Resumo dos Negócios")]
+        pattern = re.compile(r'^B3\s+RV\s+LISTADO\s+([CV])\s+(FRACIONARIO|VISTA)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
         for line in section.split('\n'):
             line = ' '.join(line.strip().split())
             match = pattern.match(line)
@@ -114,28 +109,20 @@ class AgoraParser(BrokerParser):
                     'dc': match.group(7)
                 })
         return trades
-
-    @classmethod
-    def _find_trade_section(cls, text: str) -> str:
-        start = text.find("Negocios Realizados")
-        if start == -1:
-            start = text.find("Negócios Realizados")
-        end = text.find("Resumo dos Negócios", start)
-        return text[start:end] if start != -1 and end != -1 else ""
 
 class XPParser(BrokerParser):
     BROKER_NAME = "XP INVESTIMENTOS"
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data pregão[\s\S]*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        match = re.search(r'Data pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
     def extract_trades(cls, text: str) -> List[Dict]:
         trades = []
-        section = cls._find_trade_section(text)
-        pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$')
+        section = text[text.find("Negócios realizados"):text.find("Resumo dos Negócios")]
+        pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
         for line in section.split('\n'):
             line = ' '.join(line.strip().split())
             match = pattern.match(line)
@@ -152,37 +139,24 @@ class XPParser(BrokerParser):
                 })
         return trades
 
-    @classmethod
-    def _find_trade_section(cls, text: str) -> str:
-        start = text.find("Negócios realizados")
-        end = text.find("Resumo dos Negócios", start)
-        return text[start:end] if start != -1 and end != -1 else ""
-
 class BTGParser(BrokerParser):
     BROKER_NAME = "BTG"
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            return match.group(1)
-        match_fallback = re.search(r'(\d{2}/\d{2}/\d{4})', text)
-        return match_fallback.group(1) if match_fallback else None
-
-    @classmethod
-    def is_bmf(cls, text: str) -> bool:
-        return "C/V Mercadoria Vencimento" in text
+        match = re.search(r'Data\s+pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        return match.group(1) if match else None
 
     @classmethod
     def extract_trades(cls, text: str) -> List[Dict]:
         trades = []
-        if cls.is_bmf(text):
-            section = cls._find_bmf_section(text)
-            pattern = re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])')
+        if "C/V Mercadoria Vencimento" in text:
+            section = text[text.find("C/V Mercadoria Vencimento"):text.find("+Custos", text.find("C/V Mercadoria Vencimento"))]
+            pattern = re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
             market_label = 'BMF'
         else:
-            section = cls._find_vista_section(text)
-            pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
+            section = text[text.find("Negócios realizados"):text.find("Resumo dos Negócios")]
+            pattern = re.compile(r'^\d+-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])$', re.MULTILINE)
             market_label = 'A vista'
 
         for line in section.split('\n'):
@@ -214,18 +188,6 @@ class BTGParser(BrokerParser):
                     })
         return trades
 
-    @classmethod
-    def _find_bmf_section(cls, text: str) -> str:
-        start = text.find("C/V Mercadoria Vencimento")
-        end = text.find("+Custos BM&F", start)
-        return text[start:end] if start != -1 and end != -1 else ""
-
-    @classmethod
-    def _find_vista_section(cls, text: str) -> str:
-        start = text.find("Negócios realizados")
-        end = text.find("Resumo dos Negócios", start)
-        return text[start:end] if start != -1 and end != -1 else ""
-
 class TradeProcessor:
     PARSERS = [ItauParser, AgoraParser, XPParser, BTGParser]
 
@@ -244,7 +206,8 @@ class TradeProcessor:
                         date = parser.extract_date(page_text)
                         invoice = parser.extract_invoice_number(page_text)
                         info = parser.extract_client_info(page_text)
-                        client_info = info if info['client_name'] else client_info
+                        if info['client_name']:
+                            client_info = info
                         trades = parser.extract_trades(page_text)
                         for trade in trades:
                             trade['broker'] = parser.BROKER_NAME
@@ -256,7 +219,7 @@ class TradeProcessor:
         return {"trades": all_trades, "client_info": client_info}
 
     @classmethod
-    def process_directory(cls, directory: str) -> None:
+    def process_directory(cls, directory: str) -> pd.DataFrame:
         all_trades = []
         client_name = ""
         client_cpf = ""
@@ -273,7 +236,7 @@ class TradeProcessor:
 
         if not all_trades:
             print("No trades found in PDF files")
-            return
+            return None
 
         df = pd.DataFrame(all_trades)
         desired_order = ['broker', 'date', 'invoice', 'market'] + [col for col in df.columns if col not in ['broker', 'date', 'invoice', 'market']]
@@ -282,25 +245,20 @@ class TradeProcessor:
 
         output_file = "consolidated_trades.xlsx"
         with pd.ExcelWriter(output_file) as writer:
-            vista_cols = ['broker', 'date', 'invoice', 'market', 'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc']
-            bmf_cols = ['broker', 'date', 'invoice', 'market', 'direction', 'ticker', 'maturity', 'quantity', 'price', 'trade_type', 'value', 'dc']
-
-            if client_name or client_cpf:
-                client_info_df = pd.DataFrame([[client_name, client_cpf]], columns=['Client Name', 'CPF'])
+            client_info_df = pd.DataFrame([[client_name, client_cpf]], columns=['Client Name', 'CPF'])
 
             vista_df = df[df['market'] == 'A vista']
             bmf_df = df[df['market'] == 'BMF']
 
             if not vista_df.empty:
                 client_info_df.to_excel(writer, sheet_name='A Vista', index=False, startrow=0)
-                vista_df[vista_cols].to_excel(writer, sheet_name='A Vista', index=False, startrow=2)
+                vista_df.to_excel(writer, sheet_name='A Vista', index=False, startrow=2)
 
             if not bmf_df.empty:
                 client_info_df.to_excel(writer, sheet_name='BMF', index=False, startrow=0)
-                bmf_df[bmf_cols].to_excel(writer, sheet_name='BMF', index=False, startrow=2)
+                bmf_df.to_excel(writer, sheet_name='BMF', index=False, startrow=2)
 
         print(f"Saved {len(df)} trades to {output_file}")
-
         return df
 
 if __name__ == "__main__":
