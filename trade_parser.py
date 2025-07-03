@@ -19,17 +19,14 @@ class BrokerConfig:
 BTG_CONFIG = BrokerConfig(
     name="BTG",
     invoice_patterns=[
-        r"Nota\s+de\s+Negocia\u00e7\u00e3o\s+N(?:\u00ba|o|\u00b0)\s*[:\-]?\s*(\d+)",
+        r"Nota\s+de\s+Negociação\s+N(?:º|o|°)\s*[:\-]?\s*(\d+)",
         r"Nr\.?\s*nota\s*[:\-]?\s*(\d+)",
         r"Nota\s*[:\-]?\s*(\d+)"
     ],
-    date_patterns=[r'Data\s+preg\u00e3o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
-    client_patterns={
-        "name": r"C\.P\.F\./C\.N\.P\.J/C\.V\.M\./C\.O\.B\.\s*(\d{3}\.\d{3}\.\d{3}-\d{2})([A-Z\s]+)",
-        "cpf": r"C\.P\.F\./C\.N\.P\.J/C\.V\.M\./C\.O\.B\.\s*(\d{3}\.\d{3}\.\d{3}-\d{2})"
-    },
-    trade_start_marker="Neg\u00f3cios realizados",
-    trade_end_marker="Resumo dos Neg\u00f3cios",
+    date_patterns=[r'Data\s+pregão\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})', r'(\d{2}/\d{2}/\d{4})'],
+    client_patterns={},  # não mais usado diretamente
+    trade_start_marker="Negócios realizados",
+    trade_end_marker="Resumo dos Negócios",
     trade_patterns=[
         re.compile(r'^([CV])\s+(\S+)\s+(\d{2}/\d{2}/\d{4})\s+(\d+)\s+([\d.,]+)\s+(\S+)\s+([\d.,]+)\s+([DC])'),
         re.compile(r'^(\d+)-BOVESPA\s+([CV])\s+(VISTA|FRACIONARIO)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([DC])')
@@ -44,12 +41,13 @@ class GenericParser:
     def parse_pdf(self, file_path: str) -> Dict:
         text = self._extract_text(file_path)
         top_fields = self._extract_top_table_fields(text)
+        client_info = self._extract_top_client_fields(text)
 
         return {
             "broker": self.config.name,
             "invoice": top_fields.get("invoice") or self._extract_first_match(text, self.config.invoice_patterns),
             "date": self._extract_first_match(text, self.config.date_patterns),
-            "client": self._extract_client_info(text),
+            "client": client_info,
             "trades": self._extract_trades(text)
         }
 
@@ -71,6 +69,20 @@ class GenericParser:
                         break
         return info
 
+    def _extract_top_client_fields(self, text: str) -> Dict[str, str]:
+        lines = text.splitlines()
+        info = {"cpf": "", "name": ""}
+
+        for i, line in enumerate(lines):
+            if "C.P.F./C.N.P.J/C.V.M./C.O.B." in line:
+                if i + 1 < len(lines):
+                    match = re.match(r'(\d{3}\.\d{3}\.\d{3}-\d{2})(.+)', lines[i + 1].strip())
+                    if match:
+                        info["cpf"] = match.group(1).strip()
+                        info["name"] = match.group(2).strip()
+                break
+        return info
+
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL | re.MULTILINE)
@@ -81,20 +93,7 @@ class GenericParser:
         return ""
 
     def _extract_client_info(self, text: str) -> Dict[str, str]:
-        lines = text.splitlines()
-        cpf, name = "", ""
-
-        for i, line in enumerate(lines):
-            if "C.P.F./C.N.P.J/C.V.M./C.O.B." in line:
-                if i + 1 < len(lines):
-                    below = lines[i + 1].strip()
-                    match = re.match(r'(\d{3}\.\d{3}\.\d{3}-\d{2})(.+)', below)
-                    if match:
-                        cpf = match.group(1).strip()
-                        name = match.group(2).strip()
-                break
-
-        return {"cpf": cpf, "name": name}
+        return self._extract_top_client_fields(text)
 
     def _extract_trades(self, text: str) -> List[Dict]:
         trades = []
