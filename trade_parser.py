@@ -2,7 +2,7 @@ import os
 import re
 import pdfplumber
 import pandas as pd
-import tabula
+from tabula.io import read_pdf
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 
@@ -58,7 +58,7 @@ class GenericParser:
 
     def _extract_top_table_fields(self, file_path: str) -> Dict[str, str]:
         try:
-            dfs = tabula.read_pdf(file_path, pages=1, multiple_tables=True, lattice=True)
+            dfs = read_pdf(file_path, pages=1, multiple_tables=True, lattice=True)
             for df in dfs:
                 text_df = df.astype(str).applymap(lambda x: x.strip())
                 for _, row in text_df.iterrows():
