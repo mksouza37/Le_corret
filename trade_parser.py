@@ -17,15 +17,17 @@ class BrokerParser:
 
     @classmethod
     def extract_invoice_number(cls, text: str) -> Optional[str]:
-        match = re.search(r'Nr.?\s*nota\s*(\d+)', text, re.IGNORECASE)
+        match = re.search(r'Nr\.?\s*nota\s*(\d+)', text, re.IGNORECASE)
+        if not match:
+            match = re.search(r'nota\s*de\s*corretagem\s*(\d+)', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
     def extract_client_info(cls, text: str) -> Dict[str, str]:
         cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})', text)
-        name_match = re.search(r'(MARKUS SOUZA DO NASCIMENTO|RUI SERGIO RANDI JUNIOR)', text, re.IGNORECASE)
+        name_match = re.search(r'Cliente\s*\n\s*(.*?)\n', text, re.IGNORECASE)
         cpf = cpf_match.group(1) if cpf_match else ""
-        name = name_match.group(1).title() if name_match else ""
+        name = name_match.group(1).strip().title() if name_match else ""
         return {"client_name": name, "client_cpf": cpf}
 
     @classmethod
@@ -46,7 +48,7 @@ class ItauParser(BrokerParser):
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data Pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        match = re.search(r'Data Pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
@@ -92,7 +94,7 @@ class AgoraParser(BrokerParser):
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data\s+pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        match = re.search(r'Data\s+pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
@@ -124,7 +126,7 @@ class XPParser(BrokerParser):
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        match = re.search(r'Data pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
@@ -156,7 +158,7 @@ class BTGParser(BrokerParser):
 
     @classmethod
     def extract_date(cls, text: str) -> Optional[str]:
-        match = re.search(r'Data\s+pregão.*?(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
+        match = re.search(r'Data\s+pregão\s*\n\s*(\d{2}/\d{2}/\d{4})', text, re.IGNORECASE)
         return match.group(1) if match else None
 
     @classmethod
