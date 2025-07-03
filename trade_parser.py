@@ -8,6 +8,15 @@ class BrokerParser:
     BROKER_NAME = "GENERIC"
 
     @classmethod
+    def normalize_text(cls, text: str) -> str:
+        """Normalize text for better pattern matching"""
+        # Replace multiple spaces with single space
+        text = re.sub(r'\s+', ' ', text)
+        # Remove special characters that might interfere
+        text = re.sub(r'[^\w\s./-]', '', text)
+        return text.strip()
+
+    @classmethod
     def match_broker(cls, text: str) -> bool:
         return cls.BROKER_NAME.upper() in text.upper()
 
@@ -30,16 +39,30 @@ class BrokerParser:
         patterns = [
             r'Nr\.?\s*nota\s*[:\|]?\s*(\d+)\s*[\/\|]',  # For cases with separators
             r'Nr\.?\s*nota\s*(\d+)\s+Folha',  # Followed by "Folha"
+            r'N\.\s*atual\s*(\d+)',  # XP format variation
+            r'Nr\.Nota\s*(\d+)',  # XP format
             r'Nr\.?\s*nota\s*(\d+)',  # Basic pattern
             r'nota\s*de\s*corretagem\s*(\d+)',  # Alternative format
-            r'Nr\.Nota\s*(\d+)',  # XP format
-            r'N\.\s*atual\s*(\d+)'  # Another XP format variation
+            r'Nr\.?\s*Nota\s*(\d+/\d+)',  # For ITAÚ's 1/2026 format
+            r'NOTA\s*DE\s*NEGOCIAÇÃO\s*Nr\.?\s*(\d+)'  # XP header format
         ]
 
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
+                # Handle cases like "1/2026" by taking just the first part
+                if '/' in match.group(1):
+                    return match.group(1).split('/')[0]
                 return match.group(1)
+
+        # Additional fallback for XP notes where number might be on next line
+        if "NOTA DE NEGOCIAÇÃO" in text:
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                if "NOTA DE NEGOCIAÇÃO" in line and i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line.isdigit():
+                        return next_line
 
         return None
 
@@ -236,14 +259,17 @@ class TradeProcessor:
                 page_text = page.extract_text()
                 if not page_text:
                     continue
+
+                normalized_text = cls.normalize_text(page_text)
+
                 for parser in cls.PARSERS:
-                    if parser.match_broker(page_text):
-                        date = parser.extract_date(page_text)
-                        invoice = parser.extract_invoice_number(page_text)
-                        info = parser.extract_client_info(page_text)
+                    if parser.match_broker(normalized_text):
+                        date = parser.extract_date(normalized_text)
+                        invoice = parser.extract_invoice_number(normalized_text)
+                        info = parser.extract_client_info(normalized_text)
                         if info['client_name']:
                             client_info = info
-                        trades = parser.extract_trades(page_text)
+                        trades = parser.extract_trades(normalized_text)
                         for trade in trades:
                             trade['broker'] = parser.BROKER_NAME
                             trade['date'] = date
