@@ -23,6 +23,11 @@ def upload_files():
 
         df = TradeProcessor.process_directory(UPLOAD_FOLDER)
 
+        if df is not None and not df.empty:
+            print('Trades selecionados com sucesso.')
+        else:
+            print('Nenhum trade encontrado.')
+
         for path in saved_files:
             os.remove(path)
 

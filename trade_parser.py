@@ -301,5 +301,7 @@ class TradeProcessor:
 
         print(f"Saved {len(df)} trades to {output_file}")
 
+        return df
+
 if __name__ == "__main__":
     TradeProcessor.process_directory("./")
