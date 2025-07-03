@@ -8,15 +8,6 @@ class BrokerParser:
     BROKER_NAME = "GENERIC"
 
     @classmethod
-    def normalize_text(cls, text: str) -> str:
-        """Normalize text for better pattern matching"""
-        # Replace multiple spaces with single space
-        text = re.sub(r'\s+', ' ', text)
-        # Remove special characters that might interfere
-        text = re.sub(r'[^\w\s./-]', '', text)
-        return text.strip()
-
-    @classmethod
     def match_broker(cls, text: str) -> bool:
         return cls.BROKER_NAME.upper() in text.upper()
 
@@ -248,6 +239,15 @@ class BTGParser(BrokerParser):
 
 class TradeProcessor:
     PARSERS = [ItauParser, AgoraParser, XPParser, BTGParser]
+
+    @classmethod
+    def normalize_text(cls, text: str) -> str:
+        """Normalize text for better pattern matching"""
+        # Replace multiple spaces with single space
+        text = re.sub(r'\s+', ' ', text)
+        # Remove special characters that might interfere
+        text = re.sub(r'[^\w\s./-]', '', text)
+        return text.strip()
 
     @classmethod
     def process_pdf(cls, file_path: str) -> Dict[str, any]:
