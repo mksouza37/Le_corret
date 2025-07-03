@@ -28,7 +28,7 @@ def upload_files():
 
         if df is not None and not df.empty:
             cpf_value = df['client_cpf'].iloc[0].replace('.', '').replace('-', '')
-            output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
+            output_filename = f"{OUTPUT_FILE_BASE} - Cpf: {cpf_value}.xlsx"
 
             with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
                 workbook = writer.book
