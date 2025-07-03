@@ -15,12 +15,33 @@ class BrokerParser:
     def extract_date(cls, text: str) -> Optional[str]:
         raise NotImplementedError
 
+    '''
     @classmethod
     def extract_invoice_number(cls, text: str) -> Optional[str]:
         match = re.search(r'Nr\.?\s*nota\s*(\d+)', text, re.IGNORECASE)
         if not match:
             match = re.search(r'nota\s*de\s*corretagem\s*(\d+)', text, re.IGNORECASE)
         return match.group(1) if match else None
+    '''
+
+    @classmethod
+    def extract_invoice_number(cls, text: str) -> Optional[str]:
+        # Try patterns in order of specificity
+        patterns = [
+            r'Nr\.?\s*nota\s*[:\|]?\s*(\d+)\s*[\/\|]',  # For cases with separators
+            r'Nr\.?\s*nota\s*(\d+)\s+Folha',  # Followed by "Folha"
+            r'Nr\.?\s*nota\s*(\d+)',  # Basic pattern
+            r'nota\s*de\s*corretagem\s*(\d+)',  # Alternative format
+            r'Nr\.Nota\s*(\d+)',  # XP format
+            r'N\.\s*atual\s*(\d+)'  # Another XP format variation
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+        return None
 
     @classmethod
     def extract_client_info(cls, text: str) -> Dict[str, str]:
