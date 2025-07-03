@@ -5,7 +5,7 @@ from trade_parser import TradeProcessor
 
 app = Flask(__name__)
 UPLOAD_FOLDER = './tmp'
-OUTPUT_FILE = os.path.join(UPLOAD_FOLDER, 'trades_output.xlsx')
+OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -27,7 +27,10 @@ def upload_files():
             os.remove(path)
 
         if df is not None and not df.empty:
-            with pd.ExcelWriter(OUTPUT_FILE, engine='xlsxwriter') as writer:
+            cpf_value = df['client_cpf'].iloc[0].replace('.', '').replace('-', '')
+            output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
+
+            with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
                 workbook = writer.book
 
                 vista_cols = [
@@ -61,6 +64,7 @@ def upload_files():
                         worksheet.write_string(0, 0, client_line)
                         bmf_df[common_bmf_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
 
+            app.config['GENERATED_FILE'] = output_filename
             return redirect(url_for('download_file'))
 
         return render_template('index.html')
@@ -69,8 +73,9 @@ def upload_files():
 
 @app.route('/download')
 def download_file():
-    if os.path.exists(OUTPUT_FILE):
-        return send_file(OUTPUT_FILE, as_attachment=True, download_name='Notas_Corretagem.xlsx')
+    output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
+    if os.path.exists(output_filename):
+        return send_file(output_filename, as_attachment=True, download_name=os.path.basename(output_filename))
     else:
         return "Arquivo não encontrado", 404
 
