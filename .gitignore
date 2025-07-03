@@ -1,0 +1,7 @@
+.idea/
+.env
+__pycache__/
+.venv/
+*.log
+melhorias.txt
+parser_BK.py
