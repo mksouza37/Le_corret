@@ -6,27 +6,37 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import inspect
 import logging
-
+from flask_login import LoginManager
+from auth import auth_bp
+from models import db, User, Subscription
 from trade_parser import TradeProcessor
-from models import User, Subscription  # Register models so Flask-Migrate can see them
 
 # Load env vars from .env (for local dev)
 load_dotenv()
 
-# Setup Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Logging (so Render logs show info)
+# Logging (Render-compatible)
 logging.basicConfig(level=logging.INFO)
 
 # Init DB & migration
-db = SQLAlchemy()
-migrate = Migrate()
 db.init_app(app)
-migrate.init_app(app, db)
+migrate = Migrate(app, db)
+
+# Setup login manager
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'auth.login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Register auth blueprint
+app.register_blueprint(auth_bp)
 
 # Temporary upload folder
 UPLOAD_FOLDER = './tmp'
@@ -34,7 +44,6 @@ OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Route: Home / Upload
 @app.route('/', methods=['GET', 'POST'])
 def upload_files():
     if request.method == 'POST':
@@ -94,7 +103,6 @@ def upload_files():
 
     return render_template('index.html', uploaded_files=[])
 
-# Route: Download
 @app.route('/download')
 def download_file():
     output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
