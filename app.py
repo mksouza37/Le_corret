@@ -111,26 +111,3 @@ def download_file():
                 app.logger.error(f"Error cleaning files: {e}")
     else:
         return "File not found", 404
-
-# Route: /check-db
-@app.route('/check-db')
-def check_db():
-    try:
-        inspector = inspect(db.engine)
-        tables = inspector.get_table_names()
-        return jsonify({
-            "status": "success",
-            "tables": tables
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-
-# ✅ Force DB upgrade at startup (even in gunicorn)
-with app.app_context():
-    from flask_migrate import upgrade
-    app.logger.info(">>> Running DB upgrade on startup...")
-    upgrade()
-    app.logger.info(">>> DB upgrade completed.")
