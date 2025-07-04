@@ -107,23 +107,23 @@ def download_file():
     else:
         return "File not found", 404
 
-    from flask import jsonify
-    from sqlalchemy import inspect
+from flask import jsonify
+from sqlalchemy import inspect
 
-    @app.route('/check-db')
-    def check_db():
-        try:
-            inspector = inspect(db.engine)
-            tables = inspector.get_table_names()
-            return jsonify({
-                "status": "success",
-                "tables": tables
-            })
-        except Exception as e:
-            return jsonify({
-                "status": "error",
-                "message": str(e)
-            }), 500
+@app.route('/check-db')
+def check_db():
+    try:
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        return jsonify({
+            "status": "success",
+            "tables": tables
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 if __name__ == '__main__':
 
