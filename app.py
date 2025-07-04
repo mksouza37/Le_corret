@@ -107,8 +107,6 @@ def download_file():
     else:
         return "File not found", 404
 
-if __name__ == '__main__':
-
     from flask import jsonify
     from sqlalchemy import inspect
 
@@ -126,6 +124,8 @@ if __name__ == '__main__':
                 "status": "error",
                 "message": str(e)
             }), 500
+
+if __name__ == '__main__':
 
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
 
