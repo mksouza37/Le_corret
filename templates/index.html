@@ -8,21 +8,32 @@
       margin: 0;
       font-family: Arial, sans-serif;
     }
+    .top-bar {
+      background-color: #34495e;
+      color: white;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .top-bar a {
+      color: #ecf0f1;
+      margin-left: 15px;
+      text-decoration: none;
+    }
     .container {
       display: grid;
       grid-template-columns: 30% 70%;
       grid-template-rows: 50% 50%;
-      height: 100vh;
+      height: calc(100vh - 50px);
     }
     .left {
       grid-row: 1 / span 2;
       background: #ecf0f1;
       padding: 20px;
-      box-sizing: border-box;
     }
     .top-right, .bottom-right {
       padding: 20px;
-      box-sizing: border-box;
     }
     .top-right {
       background: #f9f9f9;
@@ -62,8 +73,14 @@
   </style>
 </head>
 <body>
+<div class="top-bar">
+  <div>Bem-vindo, {{ current_user.email }}</div>
+  <div>
+    <a href="{{ url_for('auth.logout') }}">Logout</a>
+  </div>
+</div>
+
 <div class="container">
-  <!-- Left panel -->
   <div class="left">
     <h3>Extrator de Notas de Corretagem</h3>
     <form id="uploadForm" method="post" enctype="multipart/form-data">
@@ -72,7 +89,6 @@
     </form>
   </div>
 
-  <!-- Top right: file names -->
   <div class="top-right">
     <h4>Arquivos Selecionados:</h4>
     <ul id="fileList" class="file-list">
@@ -80,7 +96,6 @@
     </ul>
   </div>
 
-  <!-- Bottom right: status -->
   <div class="bottom-right">
     <h4>Status</h4>
     <div id="status" class="status-message">Aguardando envio...</div>
@@ -93,7 +108,6 @@
   const form = document.getElementById('uploadForm');
   const statusBox = document.getElementById('status');
 
-  // Show selected file names immediately
   fileInput.addEventListener('change', () => {
     const files = fileInput.files;
     fileList.innerHTML = '';
@@ -102,25 +116,4 @@
     } else {
       Array.from(files).forEach(file => {
         const li = document.createElement('li');
-        li.textContent = file.name;
-        fileList.appendChild(li);
-      });
-    }
-  });
-
-  // Show "Processando..." on form submit and reset interface after delay
-  form.addEventListener('submit', () => {
-    statusBox.textContent = 'Processando...';
-
-    setTimeout(() => {
-      statusBox.textContent = 'Notas processadas. Se o download não iniciar, clique em "Voltar" e tente novamente.';
-    }, 5000);
-
-    setTimeout(() => {
-      fileInput.value = '';  // limpa o input de arquivos
-      fileList.innerHTML = '<li>Nenhum arquivo selecionado</li>';
-    }, 6000);
-  });
-</script>
-</body>
-</html>
+        li.textContent = fi

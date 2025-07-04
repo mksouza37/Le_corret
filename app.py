@@ -1,50 +1,42 @@
-from flask import Flask, request, send_file, render_template, redirect, url_for, make_response, jsonify
+# app.py
+
+from flask import Flask, request, send_file, render_template, redirect, url_for, make_response
+from flask_login import LoginManager, login_required, current_user
+from models import db, User
+from auth import auth_bp
 import os
 import pandas as pd
-from dotenv import load_dotenv
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from sqlalchemy import inspect
-import logging
-from flask_login import LoginManager
-from auth import auth_bp
-from models import db, User, Subscription
 from trade_parser import TradeProcessor
 
-# Load env vars from .env (for local dev)
-load_dotenv()
-
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
-# Logging (Render-compatible)
-logging.basicConfig(level=logging.INFO)
-
-# Init DB & migration
-db.init_app(app)
-migrate = Migrate(app, db)
-
-# Setup login manager
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'auth.login'
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
-
-# Register auth blueprint
-app.register_blueprint(auth_bp)
-
-# Temporary upload folder
+# Upload folder setup
 UPLOAD_FOLDER = './tmp'
 OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# Database init
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://localhost/mydb')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
+# Register auth blueprint
+app.register_blueprint(auth_bp)
+
+# Flask-Login setup
+login_manager = LoginManager()
+login_manager.login_view = 'auth.login'
+login_manager.init_app(app)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Protected route
 @app.route('/', methods=['GET', 'POST'])
+@login_required
 def upload_files():
     if request.method == 'POST':
         uploaded_files = request.files.getlist('files')
@@ -104,6 +96,7 @@ def upload_files():
     return render_template('index.html', uploaded_files=[])
 
 @app.route('/download')
+@login_required
 def download_file():
     output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
     if os.path.exists(output_filename):
@@ -116,6 +109,11 @@ def download_file():
                 for f in os.listdir(UPLOAD_FOLDER):
                     os.remove(os.path.join(UPLOAD_FOLDER, f))
             except Exception as e:
-                app.logger.error(f"Error cleaning files: {e}")
+                app.logger.error(f"Erro ao limpar arquivos: {e}")
     else:
-        return "File not found", 404
+        return "Arquivo não encontrado", 404
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
