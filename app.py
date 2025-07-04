@@ -41,11 +41,12 @@ def load_user(user_id):
 @app.route('/', methods=['GET', 'POST'])
 @login_required
 def upload_files():
-    # Check subscription
-    subscription = current_user.subscriptions[0] if current_user.subscriptions else None
-    if not subscription or not subscription.is_active():
-        flash("Assinatura inativa ou expirada. Renove para continuar.", "error")
-        return redirect(url_for('auth.login'))
+    # TEMP: let admin bypass subscription check
+    if current_user.email.strip().lower() != "markusn37@gmail.com":
+        subscription = current_user.subscriptions[0] if current_user.subscriptions else None
+        if not subscription or not subscription.is_active():
+            flash("Assinatura inativa ou expirada. Renove para continuar.", "error")
+            return redirect(url_for('auth.login'))
 
     if request.method == 'POST':
         uploaded_files = request.files.getlist('files')
