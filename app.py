@@ -109,12 +109,23 @@ def download_file():
 
 if __name__ == '__main__':
 
-    with app.app_context():
-        from flask_migrate import upgrade
+    from flask import jsonify
+    from sqlalchemy import inspect
 
-        print(">>> Running DB upgrade on startup...")
-        upgrade()
-        print(">>> DB upgrade completed.")
+    @app.route('/check-db')
+    def check_db():
+        try:
+            inspector = inspect(db.engine)
+            tables = inspector.get_table_names()
+            return jsonify({
+                "status": "success",
+                "tables": tables
+            })
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
 
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
 
