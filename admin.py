@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 admin_bp = Blueprint('admin', __name__)
 
-ADMIN_EMAIL = "youremail@example.com"  # customize
+ADMIN_EMAIL = "markusn37@gmail.com"  # customize
 
 @admin_bp.route('/admin', methods=['GET', 'POST'])
 @login_required
