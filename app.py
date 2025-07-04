@@ -1,13 +1,32 @@
 from flask import Flask, request, send_file, render_template, redirect, url_for, make_response
 import os
 import pandas as pd
+from dotenv import load_dotenv
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+
 from trade_parser import TradeProcessor
+from models import User, Subscription  # Register models so Flask-Migrate can see them
+
+# Load env variables from .env if running locally
+load_dotenv()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize DB and migration
+db = SQLAlchemy()
+migrate = Migrate()
+db.init_app(app)
+migrate.init_app(app, db)
+
 UPLOAD_FOLDER = './tmp'
 OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 
 @app.route('/', methods=['GET', 'POST'])
 def upload_files():
@@ -69,6 +88,7 @@ def upload_files():
     # GET method: show page with no files
     return render_template('index.html', uploaded_files=[])
 
+
 @app.route('/download')
 def download_file():
     output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
@@ -83,9 +103,14 @@ def download_file():
                 for f in os.listdir(UPLOAD_FOLDER):
                     os.remove(os.path.join(UPLOAD_FOLDER, f))
             except Exception as e:
-                app.logger.error(f"Erro ao limpar arquivos: {e}")
+                app.logger.error(f"Error cleaning files: {e}")
     else:
-        return "Arquivo não encontrado", 404
+        return "File not found", 404
 
 if __name__ == '__main__':
+    with app.app_context():
+        from flask_migrate import upgrade
+        upgrade()
+
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+
