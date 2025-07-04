@@ -3,4 +3,4 @@ services:
     name: trade-extractor
     env: python
     buildCommand: ""
-    startCommand: gunicorn app:app --bind 0.0.0.0:5000
+    startCommand: python fix_schema.py
