@@ -1,33 +1,40 @@
-from flask import Flask, request, send_file, render_template, redirect, url_for, make_response
+from flask import Flask, request, send_file, render_template, redirect, url_for, make_response, jsonify
 import os
 import pandas as pd
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from sqlalchemy import inspect
+import logging
 
 from trade_parser import TradeProcessor
 from models import User, Subscription  # Register models so Flask-Migrate can see them
 
-# Load env variables from .env if running locally
+# Load env vars from .env (for local dev)
 load_dotenv()
 
+# Setup Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize DB and migration
+# Logging (so Render logs show info)
+logging.basicConfig(level=logging.INFO)
+
+# Init DB & migration
 db = SQLAlchemy()
 migrate = Migrate()
 db.init_app(app)
 migrate.init_app(app, db)
 
+# Temporary upload folder
 UPLOAD_FOLDER = './tmp'
 OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-
+# Route: Home / Upload
 @app.route('/', methods=['GET', 'POST'])
 def upload_files():
     if request.method == 'POST':
@@ -85,10 +92,9 @@ def upload_files():
 
         return render_template('index.html', uploaded_files=[])
 
-    # GET method: show page with no files
     return render_template('index.html', uploaded_files=[])
 
-
+# Route: Download
 @app.route('/download')
 def download_file():
     output_filename = app.config.get('GENERATED_FILE', OUTPUT_FILE_BASE + '.xlsx')
@@ -97,7 +103,6 @@ def download_file():
             response = make_response(send_file(output_filename, as_attachment=True, download_name=os.path.basename(output_filename)))
             return response
         finally:
-            # Cleanup after download
             try:
                 os.remove(output_filename)
                 for f in os.listdir(UPLOAD_FOLDER):
@@ -107,9 +112,7 @@ def download_file():
     else:
         return "File not found", 404
 
-from flask import jsonify
-from sqlalchemy import inspect
-
+# Route: /check-db
 @app.route('/check-db')
 def check_db():
     try:
@@ -125,16 +128,9 @@ def check_db():
             "message": str(e)
         }), 500
 
-if __name__ == '__main__':
-
-    with app.app_context():
-        from flask_migrate import upgrade
-        import logging
-
-        logging.basicConfig(level=logging.INFO)
-        app.logger.info(">>> Running DB upgrade on startup...")
-        upgrade()
-        app.logger.info(">>> DB upgrade completed.")
-
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
-
+# ✅ Force DB upgrade at startup (even in gunicorn)
+with app.app_context():
+    from flask_migrate import upgrade
+    app.logger.info(">>> Running DB upgrade on startup...")
+    upgrade()
+    app.logger.info(">>> DB upgrade completed.")
