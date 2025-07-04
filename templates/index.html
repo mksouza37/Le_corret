@@ -74,7 +74,11 @@
 </head>
 <body>
 <div class="top-bar">
-  <div>Bem-vindo, {{ current_user.email }}</div>
+  <div>
+    {% if current_user.is_authenticated %}
+      Logado como {{ current_user.email }}
+    {% endif %}
+  </div>
   <div>
     <a href="{{ url_for('auth.logout') }}">Logout</a>
   </div>
@@ -83,6 +87,25 @@
 <div class="container">
   <div class="left">
     <h3>Extrator de Notas de Corretagem</h3>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li style="color: {% if category == 'error' %}red{% else %}green{% endif %};">
+              {{ message }}
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% if current_user.subscriptions and current_user.subscriptions[0].is_active() %}
+      <p>Assinatura ativa até: {{ current_user.subscriptions[0].valid_until.strftime("%d/%m/%Y") }}</p>
+    {% else %}
+      <p style="color:red;">Assinatura inativa. Renove para continuar.</p>
+    {% endif %}
+
     <form id="uploadForm" method="post" enctype="multipart/form-data">
       <input type="file" name="files" id="fileInput" multiple required><br>
       <button class="button" type="submit">Processar</button>
@@ -116,4 +139,22 @@
     } else {
       Array.from(files).forEach(file => {
         const li = document.createElement('li');
-        li.textContent = fi
+        li.textContent = file.name;
+        fileList.appendChild(li);
+      });
+    }
+  });
+
+  form.addEventListener('submit', () => {
+    statusBox.textContent = 'Processando...';
+    setTimeout(() => {
+      statusBox.textContent = 'Notas processadas. Se o download não iniciar, clique em "Voltar" e tente novamente.';
+    }, 5000);
+    setTimeout(() => {
+      fileInput.value = '';
+      fileList.innerHTML = '<li>Nenhum arquivo selecionado</li>';
+    }, 6000);
+  });
+</script>
+</body>
+</html>

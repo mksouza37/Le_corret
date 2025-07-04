@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Painel de Administração</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+    }
+    h2 {
+      color: #2c3e50;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #2980b9;
+      color: white;
+    }
+    tr:nth-child(even) {
+      background-color: #f2f2f2;
+    }
+    .form-container {
+      margin-top: 30px;
+      padding: 15px;
+      border: 1px solid #ccc;
+      background-color: #f9f9f9;
+    }
+    input[type="text"], input[type="number"], input[type="email"] {
+      padding: 6px;
+      margin: 5px 0;
+      width: 100%;
+    }
+    button {
+      background-color: #2980b9;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover {
+      background-color: #3498db;
+    }
+  </style>
+</head>
+<body>
+  <h2>Painel de Administração</h2>
+
+  <div class="form-container">
+    <h3>Nova Assinatura</h3>
+    <form method="post">
+      <label for="email">Email do usuário:</label>
+      <input type="email" name="email" required>
+
+      <label for="cpf">CPF:</label>
+      <input type="text" name="cpf" required>
+
+      <label for="days">Dias de validade:</label>
+      <input type="number" name="days" value="365" required>
+
+      <button type="submit">Criar Assinatura</button>
+    </form>
+  </div>
+
+  <h3>Usuários e Assinaturas</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>CPF</th>
+        <th>Validade</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+        {% for sub in user.subscriptions %}
+        <tr>
+          <td>{{ user.email }}</td>
+          <td>{{ sub.cpf }}</td>
+          <td>{{ sub.valid_until.strftime("%d/%m/%Y") }}</td>
+          <td>
+            {% if sub.valid_until > now %}
+              <span style="color: green;">Ativa</span>
+            {% else %}
+              <span style="color: red;">Expirada</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

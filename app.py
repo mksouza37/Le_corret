@@ -1,12 +1,14 @@
 # app.py
 
-from flask import Flask, request, send_file, render_template, redirect, url_for, make_response
+from flask import Flask, request, send_file, render_template, redirect, url_for, make_response, flash
 from flask_login import LoginManager, login_required, current_user
-from models import db, User
+from models import db, User, Subscription
 from auth import auth_bp
+from admin import admin_bp
 import os
 import pandas as pd
 from trade_parser import TradeProcessor
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
@@ -17,15 +19,16 @@ OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Database init
+# Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://localhost/mydb')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
-# Register auth blueprint
+# Auth Blueprint
 app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
 
-# Flask-Login setup
+# Flask-Login config
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 login_manager.init_app(app)
@@ -34,10 +37,16 @@ login_manager.init_app(app)
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Protected route
+# === Protected Upload Route ===
 @app.route('/', methods=['GET', 'POST'])
 @login_required
 def upload_files():
+    # Check subscription
+    subscription = current_user.subscriptions[0] if current_user.subscriptions else None
+    if not subscription or not subscription.is_active():
+        flash("Assinatura inativa ou expirada. Renove para continuar.", "error")
+        return redirect(url_for('auth.login'))
+
     if request.method == 'POST':
         uploaded_files = request.files.getlist('files')
         saved_files = []
