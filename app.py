@@ -127,5 +127,12 @@ def check_db():
 
 if __name__ == '__main__':
 
+    with app.app_context():
+        from flask_migrate import upgrade
+
+        print(">>> Running DB upgrade on startup...")
+        upgrade()
+        print(">>> DB upgrade completed.")
+
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
 
