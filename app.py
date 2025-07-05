@@ -9,6 +9,9 @@ import os
 import pandas as pd
 from trade_parser import TradeProcessor
 from datetime import datetime
+from subscribe import subscribe_bp
+from webhook import webhook_bp
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
@@ -27,6 +30,8 @@ db.init_app(app)
 # Auth Blueprint
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
+app.register_blueprint(subscribe_bp)
+app.register_blueprint(webhook_bp)
 
 # Flask-Login config
 login_manager = LoginManager()
