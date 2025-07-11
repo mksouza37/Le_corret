@@ -65,50 +65,15 @@ def upload_files():
 
         df = TradeProcessor.process_directory(UPLOAD_FOLDER)
 
-        if df is not None and not df.empty:
-            cpf_value = df['client_cpf'].iloc[0].replace('.', '').replace('-', '')
-            output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
-
-            with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
-                workbook = writer.book
-
-                vista_cols = [
-                    'broker', 'invoice', 'date', 'market',
-                    'direction', 'type', 'ticker', 'quantity', 'price', 'value', 'dc'
-                ]
-                bmf_cols = [
-                    'broker', 'invoice', 'date', 'market',
-                    'direction', 'ticker', 'maturity', 'quantity', 'price', 'trade_type', 'value', 'dc'
-                ]
-
-                if 'A vista' in df['market'].values:
-                    vista_df = df[df['market'] == 'A vista']
-                    if not vista_df.empty:
-                        sheet_name = 'A Vista'
-                        client_cpf = vista_df['client_cpf'].iloc[0]
-                        client_line = f"CPF: {client_cpf}"
-                        common_vista_cols = [col for col in vista_cols if col in vista_df.columns]
-                        worksheet = workbook.add_worksheet(sheet_name)
-                        worksheet.write_string(0, 0, client_line)
-                        vista_df[common_vista_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
-
-                if 'BMF' in df['market'].values:
-                    bmf_df = df[df['market'] == 'BMF']
-                    if not bmf_df.empty:
-                        sheet_name = 'BMF'
-                        client_cpf = bmf_df['client_cpf'].iloc[0]
-                        client_line = f"CPF: {client_cpf}"
-                        common_bmf_cols = [col for col in bmf_cols if col in bmf_df.columns]
-                        worksheet = workbook.add_worksheet(sheet_name)
-                        worksheet.write_string(0, 0, client_line)
-                        bmf_df[common_bmf_cols].to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
-
-            app.config['GENERATED_FILE'] = output_filename
+        # Look for Excel file saved by the parser
+        generated_files = [f for f in os.listdir() if f.startswith("output_all_invoices") and f.endswith(".xlsx")]
+        if generated_files:
+            latest_file = max(generated_files, key=os.path.getctime)
+            app.config['GENERATED_FILE'] = latest_file
             return redirect(url_for('download_file'))
 
         return render_template('index.html', uploaded_files=[])
 
-    return render_template('index.html', uploaded_files=[])
 
 @app.route('/download')
 @login_required
