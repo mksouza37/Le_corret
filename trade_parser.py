@@ -653,7 +653,7 @@ class TradeProcessor:
     def process_directory(cls, directory: str) -> pd.DataFrame:
         pdf_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.lower().endswith(".pdf")]
         if not pdf_files:
-            raise FileNotFoundError("❌ No PDF files found in Colab environment!")
+            print("❌ No PDF files found in directory.")
             return pd.DataFrame()
 
         prepared_files = prepare_files_for_processing(pdf_files)
