@@ -662,7 +662,18 @@ class TradeProcessor:
         for filename in os.listdir(directory):
             if filename.lower().endswith(".pdf"):
                 file_path = os.path.join(directory, filename)
-                result = cls.process_pdf(file_path)  # Make sure process_pdf exists
+                trades, summaries = cls.process_pdfs([file_path])
+                if not trades:
+                    continue
+                result = {
+                    "trades": trades,
+                    "summary": summaries[0] if summaries else {},
+                    "invoice": trades[0].get("invoice", "") if trades else "",
+                    "broker": trades[0].get("broker", "") if trades else "",
+                    "date": trades[0].get("date", "") if trades else "",
+                    "client_cpf": trades[0].get("client_cpf", "") if trades else ""
+                }
+
                 trades = result.get("trades", [])
                 summary = result.get("summary", {})
                 invoice = result.get("invoice", "")
