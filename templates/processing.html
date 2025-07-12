@@ -1,0 +1,30 @@
+<!-- templates/processing.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Processando Arquivos</title>
+    <script>
+        async function pollStatus() {
+            try {
+                const res = await fetch('/check_status');
+                const data = await res.json();
+                if (data.status === 'ready') {
+                    window.location.href = "/download";
+                } else if (data.status === 'error') {
+                    document.getElementById("status").innerText = "❌ Erro ao processar os arquivos.";
+                } else {
+                    setTimeout(pollStatus, 3000);
+                }
+            } catch (err) {
+                console.error("Erro na verificação:", err);
+                setTimeout(pollStatus, 5000);
+            }
+        }
+        window.onload = pollStatus;
+    </script>
+</head>
+<body>
+    <h1 id="status">⏳ Seus arquivos estão sendo processados...</h1>
+</body>
+</html>

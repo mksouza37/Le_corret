@@ -5,13 +5,13 @@ from flask_login import LoginManager, login_required, current_user
 from models import db, User, Subscription
 from auth import auth_bp
 from admin import admin_bp
-import os
-import pandas as pd
 from trade_parser import TradeProcessor
-from datetime import datetime
 from subscribe import subscribe_bp
 from webhook import webhook_bp
-
+import os
+import pandas as pd
+from datetime import datetime
+import threading
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
@@ -22,12 +22,15 @@ OUTPUT_FILE_BASE = os.path.join(UPLOAD_FOLDER, 'trades_output')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# Background processing status store
+processing_status = {}
+
 # Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://localhost/mydb')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
-# Auth Blueprint
+# Auth Blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(subscribe_bp)
@@ -46,7 +49,8 @@ def load_user(user_id):
 @app.route('/', methods=['GET', 'POST'])
 @login_required
 def upload_files():
-    # 👇 Check subscription only here
+    user_id = current_user.id
+
     if current_user.email.strip().lower() != "markusn37@gmail.com":
         subscription = current_user.subscriptions[0] if current_user.subscriptions else None
         if not subscription or not subscription.is_active():
@@ -63,19 +67,37 @@ def upload_files():
                 file.save(file_path)
                 saved_files.append(file_path)
 
-        df = TradeProcessor.process_directory(UPLOAD_FOLDER)
+        # Mark as processing
+        processing_status[user_id] = "processing"
 
-        # Look for Excel file saved by the parser
-        generated_files = [f for f in os.listdir() if f.startswith("output_all_invoices") and f.endswith(".xlsx")]
-        if generated_files:
-            latest_file = max(generated_files, key=os.path.getctime)
-            app.config['GENERATED_FILE'] = latest_file
-            return redirect(url_for('download_file'))
+        def background_task():
+            try:
+                df = TradeProcessor.process_directory(UPLOAD_FOLDER)
+                if not df.empty:
+                    cpf_value = df['CPF'].iloc[0].replace('.', '').replace('-', '')
+                    output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
+                    app.config['GENERATED_FILE'] = output_filename
+                    processing_status[user_id] = "ready"
+                else:
+                    processing_status[user_id] = "error"
+            except Exception as e:
+                print(f"❌ Background processing error: {e}")
+                processing_status[user_id] = "error"
 
-        return render_template('index.html', uploaded_files=[])
+        threading.Thread(target=background_task).start()
+        return render_template('processing.html', status="processing")
 
     return render_template('index.html', uploaded_files=[])
 
+# === Polling route to check status ===
+@app.route('/check_status')
+@login_required
+def check_status():
+    user_id = current_user.id
+    status = processing_status.get(user_id, "idle")
+    return {"status": status}
+
+# === Download route ===
 @app.route('/download')
 @login_required
 def download_file():
@@ -89,6 +111,7 @@ def download_file():
                 os.remove(output_filename)
                 for f in os.listdir(UPLOAD_FOLDER):
                     os.remove(os.path.join(UPLOAD_FOLDER, f))
+                processing_status[current_user.id] = "idle"
             except Exception as e:
                 app.logger.error(f"Erro ao limpar arquivos: {e}")
     else:
