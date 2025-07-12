@@ -742,7 +742,8 @@ class TradeProcessor:
             }, inplace=True)
 
         # === PREPARE OUTPUT ===
-        output_file = "output_all_invoices.xlsx"
+        cpf_value = df_trades["CPF"].iloc[0].replace('.', '').replace('-', '')
+        output_file = os.path.join("tmp", f"trades_output - {cpf_value}.xlsx")
 
         def autofit_columns(worksheet):
             from openpyxl.utils import get_column_letter
