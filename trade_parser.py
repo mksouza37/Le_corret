@@ -578,6 +578,7 @@ class BMFParser(GenericParser):
 
 
 # === PROCESS MULTIPLE FILES ===
+
 class TradeProcessor:
     PARSERS = [
         GenericParser(BTG_CONFIG),
@@ -951,5 +952,4 @@ class TradeProcessor:
                     # === Autoajuste de colunas no final
                     autofit_columns(ws_consistencia)
 
-
-
+        return df_trades

@@ -12,6 +12,7 @@ import os
 import pandas as pd
 from datetime import datetime
 import threading
+import traceback
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
@@ -30,13 +31,13 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
-# Auth Blueprints
+# Register Blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(subscribe_bp)
 app.register_blueprint(webhook_bp)
 
-# Flask-Login config
+# Flask-Login setup
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 login_manager.init_app(app)
@@ -73,15 +74,20 @@ def upload_files():
         def background_task():
             try:
                 df = TradeProcessor.process_directory(UPLOAD_FOLDER)
-                if not df.empty:
-                    cpf_value = df['CPF'].iloc[0].replace('.', '').replace('-', '')
-                    output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
-                    app.config['GENERATED_FILE'] = output_filename
-                    processing_status[user_id] = "ready"
-                else:
-                    processing_status[user_id] = "error"
+
+                if df is None:
+                    raise ValueError("TradeProcessor returned None")
+
+                if df.empty:
+                    raise ValueError("TradeProcessor returned empty DataFrame")
+
+                cpf_value = df['CPF'].iloc[0].replace('.', '').replace('-', '')
+                output_filename = f"{OUTPUT_FILE_BASE} - {cpf_value}.xlsx"
+                app.config['GENERATED_FILE'] = output_filename
+                processing_status[user_id] = "ready"
+
             except Exception as e:
-                print(f"❌ Background processing error: {e}")
+                print(f"❌ Background processing error:\n{traceback.format_exc()}")
                 processing_status[user_id] = "error"
 
         threading.Thread(target=background_task).start()
@@ -89,7 +95,7 @@ def upload_files():
 
     return render_template('index.html', uploaded_files=[])
 
-# === Polling route to check status ===
+# === Polling route to check processing status ===
 @app.route('/check_status')
 @login_required
 def check_status():
