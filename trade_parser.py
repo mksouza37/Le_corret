@@ -652,6 +652,54 @@ class TradeProcessor:
                 return True
         return False
 
+    @classmethod
+    def process_directory(cls, directory: str) -> pd.DataFrame:
+        """
+        Called from app.py. It triggers parsing and Excel writing, and returns a dummy DataFrame just to confirm execution.
+        """
+        all_trades, all_summaries = [], []
+
+        for filename in os.listdir(directory):
+            if filename.lower().endswith(".pdf"):
+                file_path = os.path.join(directory, filename)
+                result = cls.process_pdf(file_path)  # Make sure process_pdf exists
+                trades = result.get("trades", [])
+                summary = result.get("summary", {})
+                invoice = result.get("invoice", "")
+
+                for trade in trades:
+                    trade.update({
+                        "invoice": invoice,
+                        "broker": result["broker"],
+                        "date": result["date"],
+                        "client_cpf": result["client_cpf"]
+                    })
+                    all_trades.append(trade)
+
+                if summary:
+                    summary_row = {
+                        "invoice": invoice,
+                        "broker": result["broker"],
+                        "Tipo": trade.get("Tipo", "Unknown"),
+                        **summary
+                    }
+                    all_summaries.append(summary_row)
+
+        # Save output to Excel (same logic you use locally)
+        df_trades = pd.DataFrame(all_trades)
+        df_summaries = pd.DataFrame(all_summaries)
+
+        if not df_trades.empty:
+            cpf = df_trades["client_cpf"].iloc[0].replace(".", "").replace("-", "")
+            output_path = f"output_all_invoices - {cpf}.xlsx"
+
+            with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                df_trades.to_excel(writer, sheet_name="Negócios", index=False)
+                df_summaries.to_excel(writer, sheet_name="Resumo", index=False)
+
+        return df_trades
+
+
 # === RUN EXTRACTION ===
 if __name__ == "__main__":
 
