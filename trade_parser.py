@@ -653,295 +653,297 @@ class TradeProcessor:
         return False
 
 # === RUN EXTRACTION ===
-pdf_files = [f for f in os.listdir() if f.endswith(".pdf")]
-if not pdf_files:
-    raise FileNotFoundError("❌ No PDF files found in Colab environment!")
+if __name__ == "__main__":
 
-prepared_files = prepare_files_for_processing(pdf_files)
-trades, summaries = TradeProcessor.process_pdfs(prepared_files)
-df_trades = pd.DataFrame(trades)
+    pdf_files = [f for f in os.listdir() if f.endswith(".pdf")]
+    if not pdf_files:
+        raise FileNotFoundError("❌ No PDF files found in Colab environment!")
 
-# ✅ Add this block here
-if "Valor Operação" in df_trades.columns and "Valor Operação / Ajuste" in df_trades.columns:
-    df_trades["valor_trades"] = df_trades.apply(
-        lambda row: row["Valor Operação"] if str(row.get("Tipo", "")).strip().lower() == "bm&f" else row["Valor Operação / Ajuste"],
-        axis=1
-    )
-elif "Valor Operação" in df_trades.columns:
-    df_trades["valor_trades"] = df_trades["Valor Operação"]
-elif "Valor Operação / Ajuste" in df_trades.columns:
-    df_trades["valor_trades"] = df_trades["Valor Operação / Ajuste"]
-else:
-    df_trades["valor_trades"] = 0
+    prepared_files = prepare_files_for_processing(pdf_files)
+    trades, summaries = TradeProcessor.process_pdfs(prepared_files)
+    df_trades = pd.DataFrame(trades)
 
-df_summary = pd.DataFrame(summaries).dropna(how='all')
+    # ✅ Add this block here
+    if "Valor Operação" in df_trades.columns and "Valor Operação / Ajuste" in df_trades.columns:
+        df_trades["valor_trades"] = df_trades.apply(
+            lambda row: row["Valor Operação"] if str(row.get("Tipo", "")).strip().lower() == "bm&f" else row["Valor Operação / Ajuste"],
+            axis=1
+        )
+    elif "Valor Operação" in df_trades.columns:
+        df_trades["valor_trades"] = df_trades["Valor Operação"]
+    elif "Valor Operação / Ajuste" in df_trades.columns:
+        df_trades["valor_trades"] = df_trades["Valor Operação / Ajuste"]
+    else:
+        df_trades["valor_trades"] = 0
 
-    # === CONSISTENCY SHEET (with broker column, handles missing summary/trades) ===
-if "invoice" in df_trades.columns or "invoice" in df_summary.columns:
+    df_summary = pd.DataFrame(summaries).dropna(how='all')
 
-    trade_value_column = "valor_trades"
+        # === CONSISTENCY SHEET (with broker column, handles missing summary/trades) ===
+    if "invoice" in df_trades.columns or "invoice" in df_summary.columns:
 
-    if trade_value_column:
-        # 1. Get sum of trades per invoice + broker
-        trade_totals = (
-              df_trades.groupby(["invoice", "broker", "Tipo"])[trade_value_column]
-              .sum()
-              .reset_index()
-          )
+        trade_value_column = "valor_trades"
 
-        # 2. Get summary values per invoice + broker using BOTH possible keys
-        summary_candidates = ["Valor das operações", "Valor dos negócios"]
-        valor_col = None
-        for col in summary_candidates:
-            if col in df_summary.columns:
-                valor_col = col
-                break
+        if trade_value_column:
+            # 1. Get sum of trades per invoice + broker
+            trade_totals = (
+                  df_trades.groupby(["invoice", "broker", "Tipo"])[trade_value_column]
+                  .sum()
+                  .reset_index()
+              )
 
-        if valor_col:
-            resumo_valores = df_summary[["invoice", "broker", "Tipo", valor_col]].rename(
-                columns={valor_col: "valor_das_operacoes"}
-            )
+            # 2. Get summary values per invoice + broker using BOTH possible keys
+            summary_candidates = ["Valor das operações", "Valor dos negócios"]
+            valor_col = None
+            for col in summary_candidates:
+                if col in df_summary.columns:
+                    valor_col = col
+                    break
 
-            all_invoices = pd.DataFrame(
-                pd.concat([
-                    trade_totals[["invoice", "broker", "Tipo"]],
-                    resumo_valores[["invoice", "broker", "Tipo"]]
-                ]).drop_duplicates(), columns=["invoice", "broker", "Tipo"]
-            )
+            if valor_col:
+                resumo_valores = df_summary[["invoice", "broker", "Tipo", valor_col]].rename(
+                    columns={valor_col: "valor_das_operacoes"}
+                )
 
-            df_consistency = all_invoices \
-                .merge(trade_totals, on=["invoice", "broker", "Tipo"], how="left") \
-                .merge(resumo_valores, on=["invoice", "broker", "Tipo"], how="left")
+                all_invoices = pd.DataFrame(
+                    pd.concat([
+                        trade_totals[["invoice", "broker", "Tipo"]],
+                        resumo_valores[["invoice", "broker", "Tipo"]]
+                    ]).drop_duplicates(), columns=["invoice", "broker", "Tipo"]
+                )
 
-            df_consistency[trade_value_column] = df_consistency[trade_value_column].fillna(0)
-            df_consistency["valor_das_operacoes"] = df_consistency["valor_das_operacoes"].fillna(0)
-            df_consistency["Diferença"] = (df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]).round(2)
-            df_consistency["Status"] = df_consistency["Diferença"].apply(lambda x: "OK" if abs(x) < 0.01 else "Inconsistência")
+                df_consistency = all_invoices \
+                    .merge(trade_totals, on=["invoice", "broker", "Tipo"], how="left") \
+                    .merge(resumo_valores, on=["invoice", "broker", "Tipo"], how="left")
+
+                df_consistency[trade_value_column] = df_consistency[trade_value_column].fillna(0)
+                df_consistency["valor_das_operacoes"] = df_consistency["valor_das_operacoes"].fillna(0)
+                df_consistency["Diferença"] = (df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]).round(2)
+                df_consistency["Status"] = df_consistency["Diferença"].apply(lambda x: "OK" if abs(x) < 0.01 else "Inconsistência")
+            else:
+                df_consistency = pd.DataFrame()
         else:
             df_consistency = pd.DataFrame()
     else:
         df_consistency = pd.DataFrame()
-else:
-    df_consistency = pd.DataFrame()
 
-# === RENAME COLUMNS FOR EXPORT ===
-df_trades.rename(columns={
-    "invoice": "Número da Nota", "broker": "Corretora",
-    "client_cpf": "CPF", "date": "Data da Operação"
-}, inplace=True)
+    # === RENAME COLUMNS FOR EXPORT ===
+    df_trades.rename(columns={
+        "invoice": "Número da Nota", "broker": "Corretora",
+        "client_cpf": "CPF", "date": "Data da Operação"
+    }, inplace=True)
 
-df_summary.rename(columns={
-    "invoice": "Número da Nota", "broker": "Corretora"
-}, inplace=True)
-
-if not df_consistency.empty:
-    df_consistency.rename(columns={
+    df_summary.rename(columns={
         "invoice": "Número da Nota", "broker": "Corretora"
     }, inplace=True)
 
-# === PREPARE OUTPUT ===
-output_file = "output_all_invoices.xlsx"
-
-def autofit_columns(worksheet):
-    from openpyxl.utils import get_column_letter
-
-    column_widths = {}
-
-    for row in worksheet.iter_rows():
-        for cell in row:
-            if cell.value:
-                col_letter = get_column_letter(cell.column)
-                current_width = column_widths.get(col_letter, 0)
-                value_length = len(str(cell.value))
-                column_widths[col_letter] = max(current_width, value_length)
-
-                # Center align headers (bold cells)
-                if cell.font and cell.font.bold:
-                    cell.alignment = Alignment(horizontal="center")
-
-    for col_letter, width in column_widths.items():
-        worksheet.column_dimensions[col_letter].width = width + 2  # +2 for padding
-
-with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-    workbook = writer.book
-
-    # === Negócios ===
-    ws = workbook.create_sheet(title="Negócios")
-    row_idx = 1
-
-    if not df_trades.empty:
-        tipos_ordenados = ["A Vista", "BM&F"]
-        for tipo in tipos_ordenados:
-            tipo_lower = tipo.strip().lower()
-            if tipo_lower not in df_trades["Tipo"].str.lower().str.strip().unique():
-                continue
-
-            block = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower].copy()
-            block = block.sort_values(by=["Corretora", "Data da Operação"])
-
-            if tipo_lower == "a vista":
-                block_columns = [
-                    "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
-                    "Negociação", "C/V", "Tipo Mercado", "Especificação do Título",
-                    "Quantidade", "Preço / Ajuste", "Valor Operação / Ajuste", "D/C"
-                ]
-            elif tipo_lower == "bm&f":
-                block_columns = [
-                    "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
-                    "C/V", "Mercadoria", "Vencimento", "Quantidade", "Preço / Ajuste",
-                    "Tipo Negócio", "Valor Operação", "D/C", "Taxa Operacional"
-                ]
-            else:
-                block_columns = block.columns.tolist()
-
-            block = block[[col for col in block_columns if col in block.columns]]
-
-            ws.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
-
-            row_idx += 2
-
-            for col_idx, col_name in enumerate(block.columns, start=1):
-                ws.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
-            row_idx += 1
-
-            for _, row in block.iterrows():
-                for col_idx, col_name in enumerate(block.columns, start=1):
-                    ws.cell(row=row_idx, column=col_idx, value=row[col_name])
-                row_idx += 1
-
-            row_idx += 1
-
-    autofit_columns(ws)
-
-        # === Resumo ===
-    ws_resumo = workbook.create_sheet(title="Resumo")
-    row_idx = 1
-
-    if not df_summary.empty:
-        tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist() # Get unique types from summary data
-
-        for tipo_lower in tipos_disponiveis:
-            tipo_lower = tipo_lower.lower().strip()
-            block = df_summary[df_summary["Tipo"].str.lower().str.strip() == tipo_lower].copy()
-
-            if block.empty:
-                continue
-
-            block = block.sort_values(by=["Corretora", "Número da Nota"])
-
-            if tipo_lower == "a vista":
-                block_columns = [
-                    "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
-                    "Opções - compras", "Opções - vendas", "Operações à termo", "Valor das oper. c/ títulos públ. (v. nom.)",
-                    "Valor das operações", "Valor líquido das operações", "Taxa de liquidação", "Taxa de Registro",
-                    "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.", "Emolumentos", "Total Bovespa / Soma",
-                    "Clearing", "Execução", "Execução casa", "Corretagem", "ISS", "IRRF sobre operações", "Outras",
-                    "Total corretagem / Despesas", "Valor a ser Liquidado"
-                ]
-            elif tipo_lower == "bm&f":
-                block_columns = [
-                    "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções", "Compra Opções", "Valor dos negócios",
-                    "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional", "Taxa registro BM&F", "Taxas BM&F (emol+f.gar)",
-                    "Outros Custos", "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas", "Outros",
-                    "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal", "Total líquido (#)",
-                    "Total líquido da nota"
-                ]
-
-            else:
-                block_columns = block.columns.tolist()
-
-            block = block[[col for col in block_columns if col in block.columns]]
-
-            ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
-            row_idx += 2
-
-            for col_idx, col_name in enumerate(block.columns, start=1):
-                ws_resumo.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
-            row_idx += 1
-
-            for _, row in block.iterrows():
-                for col_idx, col_name in enumerate(block.columns, start=1):
-                    ws_resumo.cell(row=row_idx, column=col_idx, value=row[col_name])
-                row_idx += 1
-
-            row_idx += 1
-
-    autofit_columns(ws_resumo)
-
-    # === Consistência ===
     if not df_consistency.empty:
-        ws_consistencia = workbook.create_sheet(title="Consistência")
+        df_consistency.rename(columns={
+            "invoice": "Número da Nota", "broker": "Corretora"
+        }, inplace=True)
+
+    # === PREPARE OUTPUT ===
+    output_file = "output_all_invoices.xlsx"
+
+    def autofit_columns(worksheet):
+        from openpyxl.utils import get_column_letter
+
+        column_widths = {}
+
+        for row in worksheet.iter_rows():
+            for cell in row:
+                if cell.value:
+                    col_letter = get_column_letter(cell.column)
+                    current_width = column_widths.get(col_letter, 0)
+                    value_length = len(str(cell.value))
+                    column_widths[col_letter] = max(current_width, value_length)
+
+                    # Center align headers (bold cells)
+                    if cell.font and cell.font.bold:
+                        cell.alignment = Alignment(horizontal="center")
+
+        for col_letter, width in column_widths.items():
+            worksheet.column_dimensions[col_letter].width = width + 2  # +2 for padding
+
+    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+        workbook = writer.book
+
+        # === Negócios ===
+        ws = workbook.create_sheet(title="Negócios")
         row_idx = 1
 
-        if "Tipo" in df_consistency.columns:
-          tipos_consistencia = df_consistency["Tipo"].dropna().unique().tolist()
-        else:
-          tipos_consistencia = ["Unknown"] # Default if 'Tipo' is not in consistency
+        if not df_trades.empty:
+            tipos_ordenados = ["A Vista", "BM&F"]
+            for tipo in tipos_ordenados:
+                tipo_lower = tipo.strip().lower()
+                if tipo_lower not in df_trades["Tipo"].str.lower().str.strip().unique():
+                    continue
 
-        for tipo in tipos_consistencia:
-            tipo_lower = tipo.strip().lower()
-            block = df_consistency[df_consistency["Tipo"].str.lower().str.strip() == tipo_lower].copy()
-
-            if block.empty:
-                continue
-
-            block = block.sort_values(by=["Corretora", "Número da Nota"])
-
-            block_columns = ["Corretora", "Número da Nota", "Tipo"]
-
-            # Show correct raw value column for each Tipo
-
-            if tipo_lower == "bm&f":
-              temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
-              if "Valor Operação" in temp.columns:
-                  grouped = temp.groupby(["Número da Nota", "Corretora"])["Valor Operação"].sum().reset_index()
-                  block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
-                  block_columns.append("Valor Operação")
-
-            elif tipo_lower == "a vista":
-              temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
-              if "Valor Operação / Ajuste" in temp.columns:
-                  grouped = temp.groupby(["Número da Nota", "Corretora"])["Valor Operação / Ajuste"].sum().reset_index()
-                  block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
-                  block_columns.append("Valor Operação / Ajuste")
-
-            block_columns += ["valor_das_operacoes", "Diferença", "Status"]
-            block = block[[col for col in block_columns if col in block.columns]]
-
-            ws_consistencia.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
-            row_idx += 2
-
-            # === Cabeçalhos formatados com \n e alinhamento central
-            for col_idx, col_name in enumerate(block.columns, start=1):
-                new_label = col_name
+                block = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower].copy()
+                block = block.sort_values(by=["Corretora", "Data da Operação"])
 
                 if tipo_lower == "a vista":
-                    if col_name == "Valor Operação / Ajuste":
-                        new_label = "Valor Operação / Ajuste\n (Negócios Individuais)"
-                    elif col_name == "valor_das_operacoes":
-                        new_label = "Valor das Operações\n (Resumo da Nota)"
+                    block_columns = [
+                        "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
+                        "Negociação", "C/V", "Tipo Mercado", "Especificação do Título",
+                        "Quantidade", "Preço / Ajuste", "Valor Operação / Ajuste", "D/C"
+                    ]
                 elif tipo_lower == "bm&f":
-                    if col_name == "Valor Operação":
-                        new_label = "Valor Operação\n (Negócios Individuais)"
-                    elif col_name == "valor_das_operacoes":
-                        new_label = "Valor das Operações\n (Resumo da Nota)"
+                    block_columns = [
+                        "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
+                        "C/V", "Mercadoria", "Vencimento", "Quantidade", "Preço / Ajuste",
+                        "Tipo Negócio", "Valor Operação", "D/C", "Taxa Operacional"
+                    ]
+                else:
+                    block_columns = block.columns.tolist()
 
-                cell = ws_consistencia.cell(row=row_idx, column=col_idx, value=new_label)
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(wrap_text=True, horizontal="center")
+                block = block[[col for col in block_columns if col in block.columns]]
 
-            row_idx += 1  # Avança para a linha de dados
+                ws.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
 
-            # === Dados da consistência
-            for _, row in block.iterrows():
+                row_idx += 2
+
                 for col_idx, col_name in enumerate(block.columns, start=1):
-                    ws_consistencia.cell(row=row_idx, column=col_idx, value=row[col_name])
+                    ws.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
                 row_idx += 1
 
-            row_idx += 1  # Espaçamento entre blocos
+                for _, row in block.iterrows():
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        ws.cell(row=row_idx, column=col_idx, value=row[col_name])
+                    row_idx += 1
 
-            # === Autoajuste de colunas no final
-            autofit_columns(ws_consistencia)
+                row_idx += 1
 
-            # === Exporta o arquivo
-            print(f"✅ Exported {len(pdf_files)} PDF(s) to {output_file}")
+        autofit_columns(ws)
+
+            # === Resumo ===
+        ws_resumo = workbook.create_sheet(title="Resumo")
+        row_idx = 1
+
+        if not df_summary.empty:
+            tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist() # Get unique types from summary data
+
+            for tipo_lower in tipos_disponiveis:
+                tipo_lower = tipo_lower.lower().strip()
+                block = df_summary[df_summary["Tipo"].str.lower().str.strip() == tipo_lower].copy()
+
+                if block.empty:
+                    continue
+
+                block = block.sort_values(by=["Corretora", "Número da Nota"])
+
+                if tipo_lower == "a vista":
+                    block_columns = [
+                        "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
+                        "Opções - compras", "Opções - vendas", "Operações à termo", "Valor das oper. c/ títulos públ. (v. nom.)",
+                        "Valor das operações", "Valor líquido das operações", "Taxa de liquidação", "Taxa de Registro",
+                        "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.", "Emolumentos", "Total Bovespa / Soma",
+                        "Clearing", "Execução", "Execução casa", "Corretagem", "ISS", "IRRF sobre operações", "Outras",
+                        "Total corretagem / Despesas", "Valor a ser Liquidado"
+                    ]
+                elif tipo_lower == "bm&f":
+                    block_columns = [
+                        "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções", "Compra Opções", "Valor dos negócios",
+                        "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional", "Taxa registro BM&F", "Taxas BM&F (emol+f.gar)",
+                        "Outros Custos", "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas", "Outros",
+                        "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal", "Total líquido (#)",
+                        "Total líquido da nota"
+                    ]
+
+                else:
+                    block_columns = block.columns.tolist()
+
+                block = block[[col for col in block_columns if col in block.columns]]
+
+                ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
+                row_idx += 2
+
+                for col_idx, col_name in enumerate(block.columns, start=1):
+                    ws_resumo.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
+                row_idx += 1
+
+                for _, row in block.iterrows():
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        ws_resumo.cell(row=row_idx, column=col_idx, value=row[col_name])
+                    row_idx += 1
+
+                row_idx += 1
+
+        autofit_columns(ws_resumo)
+
+        # === Consistência ===
+        if not df_consistency.empty:
+            ws_consistencia = workbook.create_sheet(title="Consistência")
+            row_idx = 1
+
+            if "Tipo" in df_consistency.columns:
+              tipos_consistencia = df_consistency["Tipo"].dropna().unique().tolist()
+            else:
+              tipos_consistencia = ["Unknown"] # Default if 'Tipo' is not in consistency
+
+            for tipo in tipos_consistencia:
+                tipo_lower = tipo.strip().lower()
+                block = df_consistency[df_consistency["Tipo"].str.lower().str.strip() == tipo_lower].copy()
+
+                if block.empty:
+                    continue
+
+                block = block.sort_values(by=["Corretora", "Número da Nota"])
+
+                block_columns = ["Corretora", "Número da Nota", "Tipo"]
+
+                # Show correct raw value column for each Tipo
+
+                if tipo_lower == "bm&f":
+                  temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
+                  if "Valor Operação" in temp.columns:
+                      grouped = temp.groupby(["Número da Nota", "Corretora"])["Valor Operação"].sum().reset_index()
+                      block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
+                      block_columns.append("Valor Operação")
+
+                elif tipo_lower == "a vista":
+                  temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
+                  if "Valor Operação / Ajuste" in temp.columns:
+                      grouped = temp.groupby(["Número da Nota", "Corretora"])["Valor Operação / Ajuste"].sum().reset_index()
+                      block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
+                      block_columns.append("Valor Operação / Ajuste")
+
+                block_columns += ["valor_das_operacoes", "Diferença", "Status"]
+                block = block[[col for col in block_columns if col in block.columns]]
+
+                ws_consistencia.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
+                row_idx += 2
+
+                # === Cabeçalhos formatados com \n e alinhamento central
+                for col_idx, col_name in enumerate(block.columns, start=1):
+                    new_label = col_name
+
+                    if tipo_lower == "a vista":
+                        if col_name == "Valor Operação / Ajuste":
+                            new_label = "Valor Operação / Ajuste\n (Negócios Individuais)"
+                        elif col_name == "valor_das_operacoes":
+                            new_label = "Valor das Operações\n (Resumo da Nota)"
+                    elif tipo_lower == "bm&f":
+                        if col_name == "Valor Operação":
+                            new_label = "Valor Operação\n (Negócios Individuais)"
+                        elif col_name == "valor_das_operacoes":
+                            new_label = "Valor das Operações\n (Resumo da Nota)"
+
+                    cell = ws_consistencia.cell(row=row_idx, column=col_idx, value=new_label)
+                    cell.font = Font(bold=True)
+                    cell.alignment = Alignment(wrap_text=True, horizontal="center")
+
+                row_idx += 1  # Avança para a linha de dados
+
+                # === Dados da consistência
+                for _, row in block.iterrows():
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        ws_consistencia.cell(row=row_idx, column=col_idx, value=row[col_name])
+                    row_idx += 1
+
+                row_idx += 1  # Espaçamento entre blocos
+
+                # === Autoajuste de colunas no final
+                autofit_columns(ws_consistencia)
+
+                # === Exporta o arquivo
+                print(f"✅ Exported {len(pdf_files)} PDF(s) to {output_file}")
