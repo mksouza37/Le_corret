@@ -74,6 +74,7 @@ def upload_files():
 
         return render_template('index.html', uploaded_files=[])
 
+    return render_template('index.html', uploaded_files=[])
 
 @app.route('/download')
 @login_required
