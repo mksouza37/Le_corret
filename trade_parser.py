@@ -245,8 +245,14 @@ class GenericParser:
         }
 
     def _extract_text(self, file_path: str) -> str:
+        text = ""
         with pdfplumber.open(file_path) as pdf:
-            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+            for page in pdf.pages:
+                try:
+                    text += page.extract_text() or ""
+                    text += "\n"
+                except Exception as e:
+                    print(f"⚠️ Skipping page due to error: {e}")
 
     def _extract_top_client_fields(self, text: str) -> str:
         lines = text.splitlines()
