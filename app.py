@@ -91,7 +91,8 @@ def upload_files():
                 processing_status[user_id] = "error"
 
         threading.Thread(target=background_task).start()
-        return render_template('processing.html', status="processing")
+        return render_template('index.html', uploaded_files=[], processing=True)
+
 
     return render_template('index.html', uploaded_files=[])
 
