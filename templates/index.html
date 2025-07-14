@@ -54,25 +54,46 @@
 
       {% if processing %}
         <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
+        <p class="status" id="download-message" style="display: none;"></p>
+
         <script>
           async function pollStatus() {
             try {
               const res = await fetch('/check_status');
               const data = await res.json();
+
               if (data.status === 'ready') {
-                window.location.href = "/download";
+                // Esconde a mensagem de "processando"
+                document.getElementById("status").style.display = "none";
+
+                // Inicia o download automaticamente
+                const link = document.createElement('a');
+                link.href = "/download";
+                link.download = "resultado.xlsx"; // pode ser qualquer nome sugestivo
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                // Mostra a mensagem de sucesso
+                const msg = document.getElementById("download-message");
+                msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
+                msg.style.display = "block";
+
               } else if (data.status === 'error') {
                 document.getElementById("status").innerText = "❌ Erro ao processar os arquivos.";
               } else {
                 setTimeout(pollStatus, 3000);
               }
+
             } catch (err) {
               console.error("Erro na verificação:", err);
               setTimeout(pollStatus, 5000);
             }
           }
+
           pollStatus();
         </script>
+
       {% endif %}
     </section>
   </main>
