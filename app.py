@@ -94,7 +94,7 @@ def upload_files():
         return render_template('index.html', uploaded_files=[], processing=True)
 
 
-    return render_template('index.html', uploaded_files=[])
+    return render_template('index.html', uploaded_files=[], processing=False)
 
 # === Polling route to check processing status ===
 @app.route('/check_status')

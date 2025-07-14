@@ -1,0 +1,92 @@
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #ffffff;
+  color: #000;
+}
+
+.top-bar {
+  background-color: #7da2ce;
+  padding: 20px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.title-area h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  color: #333;
+  margin-top: 4px;
+}
+
+.menu a {
+  margin-left: 20px;
+  text-decoration: none;
+  font-weight: bold;
+  color: #000;
+}
+
+.container {
+  display: flex;
+  justify-content: space-between;
+  padding: 40px;
+}
+
+.upload-section, .message-section {
+  width: 48%;
+}
+
+.upload-section label {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 10px;
+}
+
+input[type="file"] {
+  display: block;
+  margin-bottom: 15px;
+}
+
+button {
+  background-color: #b4d7a8;
+  color: black;
+  padding: 10px 20px;
+  border: 1px solid #444;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+button:hover {
+  background-color: #9fc79d;
+}
+
+.file-list, .message-section {
+  border: 1px solid black;
+  padding: 20px;
+  margin-top: 20px;
+}
+
+.message {
+  background-color: #eee;
+  padding: 10px;
+  border-left: 5px solid #00c9a7;
+  margin-bottom: 10px;
+  border-radius: 4px;
+}
+
+.message.error {
+  border-left-color: #e74c3c;
+}
+
+.status {
+  margin-top: 10px;
+  font-weight: bold;
+}
