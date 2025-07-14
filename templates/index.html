@@ -1,10 +1,5 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <title>NO-DIG - Extrator de Notas</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
 <body>
 
   <header class="top-bar">
@@ -47,18 +42,33 @@
       {% endwith %}
 
       {% if processing %}
-        <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
+        <div id="processing-area">
+          <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
+          <ul id="file-names" class="file-list"></ul>
+        </div>
         <p class="status" id="download-message" style="display: none;"></p>
-        <ul id="downloaded-files" class="file-list" style="display: none;"></ul>
 
         <script>
-          function clearFileInput() {
-            document.getElementById("files").value = "";
-          }
+          const fileInput = document.getElementById("files");
 
-          function clearFileList() {
-            document.getElementById("downloaded-files").innerHTML = "";
-            document.getElementById("downloaded-files").style.display = "none";
+          document.getElementById("files").addEventListener("change", function () {
+            const fileList = document.getElementById("file-names");
+            fileList.innerHTML = "";
+
+            if (this.files.length > 0) {
+              for (let file of this.files) {
+                const li = document.createElement("li");
+                li.textContent = file.name;
+                fileList.appendChild(li);
+              }
+            }
+          });
+
+          function clearAfterDownload() {
+            document.getElementById("processing-area").remove();
+            const msg = document.getElementById("download-message");
+            msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
+            msg.style.display = "block";
           }
 
           async function pollStatus() {
@@ -67,8 +77,6 @@
               const data = await res.json();
 
               if (data.status === 'ready') {
-                document.getElementById("status").style.display = "none";
-
                 const link = document.createElement('a');
                 link.href = "/download";
                 link.download = "resultado.xlsx";
@@ -76,23 +84,8 @@
                 link.click();
                 document.body.removeChild(link);
 
-                // Mostrar mensagem de sucesso
-                const msg = document.getElementById("download-message");
-                msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
-                msg.style.display = "block";
+                clearAfterDownload();
 
-                // Mostrar nomes dos arquivos enviados
-                const fileInput = document.getElementById("files");
-                const fileList = document.getElementById("downloaded-files");
-                fileList.innerHTML = "";
-                for (let file of fileInput.files) {
-                  const li = document.createElement("li");
-                  li.textContent = file.name;
-                  fileList.appendChild(li);
-                }
-                fileList.style.display = "block";
-
-                clearFileInput();
               } else if (data.status === 'error') {
                 document.getElementById("status").innerText = "❌ Erro ao processar os arquivos.";
               } else {
