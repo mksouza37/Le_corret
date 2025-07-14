@@ -22,19 +22,15 @@
   <main class="container">
     <section class="upload-section">
       <form method="post" enctype="multipart/form-data" id="upload-form">
-        <label for="files"><strong>Carregar os PDFs das notas</strong></label>
-
-        <div class="button-group">
-          <label for="files" class="custom-button">Carregar</label>
-          <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
-          <button type="submit" class="custom-button">Processar</button>
+        <div class="form-row">
+          <label for="files" class="form-title">Carregar e Processar os PDFs das notas.</label>
+          <div class="button-group">
+            <label for="files" class="custom-button">Carregar</label>
+            <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
+            <button type="submit" class="custom-button">Processar</button>
+          </div>
         </div>
       </form>
-
-      <div id="file-preview" class="file-preview" style="display: none;">
-        <h3>Arquivos Carregados</h3>
-        <ul id="file-list"></ul>
-      </div>
     </section>
 
     <section class="message-section">
@@ -53,11 +49,16 @@
       {% if processing %}
         <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
         <p class="status" id="download-message" style="display: none;"></p>
+        <ul id="downloaded-files" class="file-list" style="display: none;"></ul>
 
         <script>
+          function clearFileInput() {
+            document.getElementById("files").value = "";
+          }
+
           function clearFileList() {
-            document.getElementById("file-list").innerHTML = "";
-            document.getElementById("file-preview").style.display = "none";
+            document.getElementById("downloaded-files").innerHTML = "";
+            document.getElementById("downloaded-files").style.display = "none";
           }
 
           async function pollStatus() {
@@ -75,12 +76,23 @@
                 link.click();
                 document.body.removeChild(link);
 
-                clearFileList();
-
+                // Mostrar mensagem de sucesso
                 const msg = document.getElementById("download-message");
                 msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
                 msg.style.display = "block";
 
+                // Mostrar nomes dos arquivos enviados
+                const fileInput = document.getElementById("files");
+                const fileList = document.getElementById("downloaded-files");
+                fileList.innerHTML = "";
+                for (let file of fileInput.files) {
+                  const li = document.createElement("li");
+                  li.textContent = file.name;
+                  fileList.appendChild(li);
+                }
+                fileList.style.display = "block";
+
+                clearFileInput();
               } else if (data.status === 'error') {
                 document.getElementById("status").innerText = "❌ Erro ao processar os arquivos.";
               } else {
@@ -98,25 +110,6 @@
       {% endif %}
     </section>
   </main>
-
-  <script>
-    document.getElementById("files").addEventListener("change", function () {
-      const fileList = document.getElementById("file-list");
-      const preview = document.getElementById("file-preview");
-      fileList.innerHTML = "";
-
-      if (this.files.length > 0) {
-        preview.style.display = "block";
-        for (let file of this.files) {
-          const li = document.createElement("li");
-          li.textContent = file.name;
-          fileList.appendChild(li);
-        }
-      } else {
-        preview.style.display = "none";
-      }
-    });
-  </script>
 
 </body>
 </html>
