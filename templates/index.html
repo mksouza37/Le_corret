@@ -1,5 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>NO-DIG - Extrator de Notas</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
 <body>
 
   <header class="top-bar">
@@ -65,7 +70,11 @@
           });
 
           function clearAfterDownload() {
-            document.getElementById("processing-area").remove();
+            const processingArea = document.getElementById("processing-area");
+            if (processingArea) {
+              processingArea.remove();
+            }
+
             const msg = document.getElementById("download-message");
             msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
             msg.style.display = "block";
