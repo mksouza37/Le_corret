@@ -130,7 +130,7 @@ body {
   font-size: 0.95rem;
 }
 
-/* New styles for file upload feedback */
+/* Enhancement: file upload feedback */
 #file-message {
   margin-top: 12px;
   background-color: #e6f7ff;
