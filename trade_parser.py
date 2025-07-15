@@ -418,6 +418,102 @@ class TradeProcessor:
                 return True
         return False
 
+    @classmethod
+    def process_directory(cls, directory: str) -> pd.DataFrame:
+        pdf_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.lower().endswith(".pdf")]
+        if not pdf_files:
+            print("❌ No PDF files found in directory.")
+            return pd.DataFrame()
+
+        prepared_files = prepare_files_for_processing(pdf_files)
+        trades, summaries = cls.process_pdfs(prepared_files)
+        df_trades = pd.DataFrame(trades)
+
+        if "Valor Operação" in df_trades.columns and "Valor Operação / Ajuste" in df_trades.columns:
+            df_trades["valor_trades"] = df_trades.apply(
+                lambda row: row["Valor Operação"] if str(row.get("Tipo", "")).strip().lower() == "bm&f" else row[
+                    "Valor Operação / Ajuste"],
+                axis=1
+            )
+        elif "Valor Operação" in df_trades.columns:
+            df_trades["valor_trades"] = df_trades["Valor Operação"]
+        elif "Valor Operação / Ajuste" in df_trades.columns:
+            df_trades["valor_trades"] = df_trades["Valor Operação / Ajuste"]
+        else:
+            df_trades["valor_trades"] = 0
+
+        df_summary = pd.DataFrame(summaries).dropna(how='all')
+
+        # === CONSISTENCY SHEET (with broker column, handles missing summary/trades) ===
+        if "invoice" in df_trades.columns or "invoice" in df_summary.columns:
+
+            trade_value_column = "valor_trades"
+
+            if trade_value_column:
+                trade_totals = (
+                    df_trades.groupby(["invoice", "broker", "Tipo"])[trade_value_column]
+                    .sum()
+                    .reset_index()
+                )
+
+                summary_candidates = ["Valor das operações", "Valor dos negócios"]
+                valor_col = None
+                for col in summary_candidates:
+                    if col in df_summary.columns:
+                        valor_col = col
+                        break
+
+                if valor_col:
+                    resumo_valores = df_summary[["invoice", "broker", "Tipo", valor_col]].rename(
+                        columns={valor_col: "valor_das_operacoes"}
+                    )
+
+                    all_invoices = pd.DataFrame(
+                        pd.concat([
+                            trade_totals[["invoice", "broker", "Tipo"]],
+                            resumo_valores[["invoice", "broker", "Tipo"]]
+                        ]).drop_duplicates(), columns=["invoice", "broker", "Tipo"]
+                    )
+
+                    df_consistency = all_invoices \
+                        .merge(trade_totals, on=["invoice", "broker", "Tipo"], how="left") \
+                        .merge(resumo_valores, on=["invoice", "broker", "Tipo"], how="left")
+
+                    df_consistency[trade_value_column] = df_consistency[trade_value_column].fillna(0)
+                    df_consistency["valor_das_operacoes"] = df_consistency["valor_das_operacoes"].fillna(0)
+                    df_consistency["Diferença"] = (
+                        df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]
+                    ).round(2)
+                    df_consistency["Status"] = df_consistency["Diferença"].apply(
+                        lambda x: "OK" if abs(x) < 0.01 else "Inconsistência")
+                else:
+                    df_consistency = pd.DataFrame()
+            else:
+                df_consistency = pd.DataFrame()
+        else:
+            df_consistency = pd.DataFrame()
+
+        df_trades.rename(columns={
+            "invoice": "Número da Nota", "broker": "Corretora",
+            "client_cpf": "CPF", "date": "Data da Operação"
+        }, inplace=True)
+
+        df_summary.rename(columns={
+            "invoice": "Número da Nota", "broker": "Corretora"
+        }, inplace=True)
+
+        if not df_consistency.empty:
+            df_consistency.rename(columns={
+                "invoice": "Número da Nota", "broker": "Corretora"
+            }, inplace=True)
+
+        cpf_value = df_trades["CPF"].iloc[0].replace('.', '').replace('-', '')
+        output_file = os.path.join("tmp", f"trades_output - {cpf_value}.xlsx")
+
+        export_to_excel(df_trades, df_summary, df_consistency, output_file)
+
+        return df_trades
+
 # === EXCEL EXPORT PLACEHOLDER ===
 
 def export_to_excel(df_trades: pd.DataFrame, df_summary: pd.DataFrame, output_path: str) -> None:
