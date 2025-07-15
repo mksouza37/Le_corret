@@ -1,43 +1,33 @@
-"""
-trade_parser_refactored.py
-
-Refactored module for parsing brokerage PDF invoices into structured Excel files.
-Supports multiple brokers and handles both A VISTA and BM&F market types.
-"""
-
 import os
 import re
-import gc
-import shutil
-import unicodedata
 import pdfplumber
 import pandas as pd
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font
+from openpyxl.styles import Alignment
 from PyPDF2 import PdfReader, PdfWriter
+import shutil
 
-# === INITIAL CLEANUP ===
-# Remove old Excel output if present
+# === Clean up any old output Excel file ===
 if os.path.exists("output_all_invoices.xlsx"):
     os.remove("output_all_invoices.xlsx")
 
-# Clear temporary directory for multi-date processing
-TEMP_DIR = "split_by_date_temp"
-if os.path.exists(TEMP_DIR):
-    shutil.rmtree(TEMP_DIR)
+# === Clean temporary directory used for split multi-date PDFs ===
+temp_dir = "split_by_date_temp"
+if os.path.exists(temp_dir):
+    shutil.rmtree(temp_dir)
 
-# Clean global DataFrames (e.g., in Colab context)
+# === Clear global DataFrames if running interactively (e.g. Colab) ===
+import gc
 try:
     del df_trades, df_summary, df_consistency
 except:
     pass
 gc.collect()
 
-
-# === CONSTANTS ===
-# Maps normalized summary keys to various aliases found in invoices
+# === KEY NORMALIZATION MAP ===
 RESUMO_KEY_MAP = {
     "Debêntures": ["Debêntures"],
     "Vendas à Vista": ["Vendas à vista", "Venda à Vista", "Vendas à Vista"],
@@ -70,24 +60,16 @@ RESUMO_KEY_MAP = {
     "Valor a ser Liquidado": ["Valor a ser Liquidado", "Líquido para"]
 }
 
+import unicodedata
 
-# === UTILITY FUNCTIONS ===
-
-def remove_accents(text: str) -> str:
-    """Removes accents from a given text for normalization."""
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', text)
-        if unicodedata.category(c) != 'Mn'
-    )
-
+def remove_accents(text):
+    return ''.join(c for c in unicodedata.normalize('NFD', text)
+                   if unicodedata.category(c) != 'Mn')
 
 def classify_invoice_type(text: str) -> str:
-    """
-    Classifies an invoice as 'avista', 'bmf', or 'unknown' based on keywords.
-    """
     normalized = remove_accents(text.lower())
 
-    if any(keyword in normalized for keyword in [
+    if any(x in normalized for x in [
         "negocios realizados", "resumo dos negocios", "negocios efetuados"
     ]):
         return "avista"
@@ -96,10 +78,9 @@ def classify_invoice_type(text: str) -> str:
     return "unknown"
 
 
-# === MULTI-DATE PDF HELPERS ===
+# === MULTI-DATE PDF HANDLING HELPERS ===
 
-def extract_dates_per_page(file_path: str) -> List[Optional[str]]:
-    """Extracts a list of trading dates from each page of a PDF."""
+def extract_dates_per_page(file_path):
     dates = []
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
@@ -116,15 +97,10 @@ def extract_dates_per_page(file_path: str) -> List[Optional[str]]:
             dates.append(found_date)
     return dates
 
-
-def group_pages_by_date(dates: List[Optional[str]]) -> List[Tuple[str, List[int]]]:
-    """
-    Groups PDF page indexes by date. Useful for splitting multi-invoice PDFs.
-    """
+def group_pages_by_date(dates):
     groups = []
     current_date = None
     current_pages = []
-
     for i, date in enumerate(dates):
         if date is None:
             continue
@@ -135,17 +111,12 @@ def group_pages_by_date(dates: List[Optional[str]]) -> List[Tuple[str, List[int]
             current_pages = [i]
         else:
             current_pages.append(i)
-
     if current_pages:
         groups.append((current_date, current_pages))
     return groups
 
-
-def prepare_files_for_processing(pdf_files: List[str]) -> List[str]:
-    """
-    Prepares PDFs for processing by splitting multi-date PDFs into single-date files.
-    """
-    output_dir = TEMP_DIR
+def prepare_files_for_processing(pdf_files):
+    output_dir = "split_by_date_temp"
     os.makedirs(output_dir, exist_ok=True)
     files_to_process = []
 
@@ -170,8 +141,6 @@ def prepare_files_for_processing(pdf_files: List[str]) -> List[str]:
 
     return files_to_process
 
-# === BROKER CONFIGURATION ===
-
 @dataclass
 class BrokerConfig:
     name: str
@@ -181,8 +150,6 @@ class BrokerConfig:
     trade_start_marker: str
     trade_end_marker: str
     signature_patterns: List[str]
-
-# === BROKER CONFIGURATIONS ===
 
 BTG_CONFIG = BrokerConfig(
     name="BTG",
@@ -250,20 +217,13 @@ XP_CONFIG = BrokerConfig(
         r"XP\s+INVESTIMENTOS\s+CORRETORA", r"xpi\.com\.br"]
 )
 
-# === BASE PARSER CLASS ===
+# === PARSER IMPLEMENTATION ===
 
 class GenericParser:
-    """
-    Base class for parsing brokerage PDFs. Designed to be extended by broker-specific parsers.
-    """
-
     def __init__(self, config: BrokerConfig):
         self.config = config
 
     def parse_pdf(self, file_path: str) -> Dict:
-        """
-        Parses a PDF and returns extracted metadata, trades, and summary.
-        """
         text = self._extract_text(file_path)
         top_fields = self._extract_top_table_fields(text)
         cpf = self._extract_top_client_fields(text)
@@ -282,12 +242,10 @@ class GenericParser:
         }
 
     def _extract_text(self, file_path: str) -> str:
-        """Extracts raw text from all pages of a PDF."""
         with pdfplumber.open(file_path) as pdf:
             return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
     def _extract_top_client_fields(self, text: str) -> str:
-        """Extracts CPF from top client information block."""
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if "cpf" in line.lower():
@@ -299,7 +257,6 @@ class GenericParser:
         return ""
 
     def _extract_top_table_fields(self, text: str) -> Dict[str, str]:
-        """Attempts to extract invoice number and metadata from known patterns."""
         lines = text.splitlines()
         info = {}
 
@@ -329,38 +286,167 @@ class GenericParser:
         return info
 
     def _extract_first_match(self, text: str, patterns: List[str]) -> str:
-        """Searches for the first regex match from a list of patterns."""
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL | re.MULTILINE)
             if match:
                 return match.group(1).strip()
         return ""
 
-    def _clean_numeric(self, value: str) -> float:
-        """Converts a numeric string to float, handling Brazilian formatting."""
-        try:
-            return float(value.replace('.', '').replace(',', '.'))
-        except Exception:
-            return 0.0
-
-    # Placeholder: these will be overridden in subclasses or extended later
     def _extract_trades(self, text: str) -> List[Dict]:
-        return []
+      trades = []
+      parser_name = self.config.name.upper()
+
+      # Extract all trade blocks
+      trade_blocks = re.findall(
+          rf"{self.config.trade_start_marker}.*?(?={self.config.trade_end_marker}|$)",
+          text,
+          flags=re.DOTALL | re.IGNORECASE,
+      )
+
+      for block in trade_blocks:
+          lines = block.splitlines()
+          header_idx = None
+
+          expected_labels = ["negociação", "c/v", "tipo", "quantidade", "preço", "valor"]
+          for i in range(len(lines) - 1):
+              chunk = ' '.join(lines[i:i + 2]).lower()
+              if sum(lbl in chunk for lbl in expected_labels) >= 4:
+                  header_idx = i + 2
+                  break
+
+          if header_idx is None:
+              continue
+
+          for line in lines[header_idx:]:
+              if not line.strip() or "resumo" in line.lower():
+                  break
+              try:
+                  tokens = line.strip().split()
+                  if "XP" in parser_name or "BTG" in parser_name or "ITAU" in parser_name:
+                      trade = {
+                          "Negociação": tokens[0],
+                          "C/V": tokens[1],
+                          "Tipo Mercado": tokens[2],
+                          "Especificação do Título": " ".join(tokens[3:5]),
+                          "Quantidade": int(tokens[-4].replace('.', '').replace(',', '')),
+                          "Preço / Ajuste": self._clean_numeric(tokens[-3]),
+                          "Valor Operação / Ajuste": self._clean_numeric(tokens[-2]),
+                          "D/C": tokens[-1]
+                      }
+
+                  elif "AGORA" in parser_name:
+                      trade = {
+                          "Negociação": ' '.join(tokens[0:2]),
+                          "C/V": tokens[3],
+                          "Tipo Mercado": tokens[4],
+                          "Especificação do Título": ' '.join(tokens[5:7]),
+                          "Quantidade": int(tokens[-4].replace('.', '').replace(',', '')),
+                          "Preço / Ajuste": self._clean_numeric(tokens[-3]),
+                          "Valor Operação / Ajuste": self._clean_numeric(tokens[-2]),
+                          "D/C": tokens[-1]
+                      }
+
+                  else:
+                      continue
+
+                  trade["Tipo"] = "A Vista"  # ✅ Add this line
+                  trades.append(trade)
+
+              except Exception as e:
+                  print(f"⚠️ Error processing line: {line}\n{e}")
+                  continue
+
+      return trades
 
     def _extract_summary_values(self, text: str) -> Dict[str, float]:
-        return {key: 0.0 for key in RESUMO_KEY_MAP}
+      summary = {}
 
+      # 1. Tenta extrair o último bloco de resumo
+      matches = list(re.finditer(r"(Resumo dos Negócios.*?)(?=Resumo dos Negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
+      if not matches:
+          matches = list(re.finditer(r"(Resumo de negócios.*?)(?=Resumo de negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
+      if not matches:
+          return {k: 0.0 for k in RESUMO_KEY_MAP}  # retorna zeros se nada encontrado
+
+      last_summary_text = matches[-1].group(1)
+      joined = re.sub(r"\s{2,}", " ", " ".join(last_summary_text.splitlines()))
+
+      # 2. Itera sobre as chaves e seus aliases
+      for std_key, variants in RESUMO_KEY_MAP.items():
+        found = False
+        for var in variants:
+            if std_key == "Valor a ser Liquidado":
+                # Captura com valor seguido opcionalmente por 'D'
+                match = re.search(
+                    r"Líquido para\s+\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2}:\d{2})?\s*([\d\.,]+)\s*(D)?",
+                    joined,
+                    flags=re.IGNORECASE
+                )
+                if match:
+                    value = self._clean_numeric(match.group(1))
+                    has_d = match.group(2)
+                    summary[std_key] = -abs(value) if has_d else value
+                    found = True
+                    break
+
+            if std_key == "IRRF sobre operações":
+              # Get all lines
+              summary_lines = last_summary_text.splitlines()
+              outras_variants = RESUMO_KEY_MAP["Outras"]
+              found_line_index = -1
+
+              for i, line in enumerate(summary_lines):
+                  if any(alias.lower() in line.lower() for alias in outras_variants):
+                      found_line_index = i
+                      break
+
+              if found_line_index > 0:
+                  previous_line = summary_lines[found_line_index - 1]
+                  matches = re.findall(r"[\d\.,]+", previous_line)
+                  if matches:
+                      summary[std_key] = -abs(self._clean_numeric(matches[-1]))  # ✅ Always negative
+                      found = True
+                      break
+
+            else:
+                # Captura valor seguido opcionalmente por "D" (débito)
+                pattern = fr"{re.escape(var)}\s*[.:\-]*\s*R?\$?\s*([\d\.,]+)\s*(D)?"
+                match = re.search(pattern, joined, flags=re.IGNORECASE)
+
+            if match:
+                value = self._clean_numeric(match.group(1))
+                has_d = match.group(2)
+
+                # Aplica sinal negativo apenas se tiver "D"
+                summary[std_key] = -abs(value) if has_d else value
+                found = True
+                break
+
+        if not found:
+            summary[std_key] = 0.0
+
+      # 3. Corrige 'Total corretagem / Despesas' apenas para ITAU
+      if self.config.name.upper() == "ITAU":
+          summary["Total corretagem / Despesas"] = sum(
+              summary.get(key, 0.0) for key in [
+                  "Corretagem", "ISS", "IRRF sobre operações", "Outras"
+              ]
+          )
+
+      return summary
+
+
+    def _clean_numeric(self, value: str) -> float:
+        try:
+            return float(value.replace('.', '').replace(',', '.'))
+        except:
+            return 0.0
 
 class AVistaParser(GenericParser):
-    """Parser for A VISTA invoices (inherits GenericParser behavior)."""
-    pass
 
+    pass  # Inherits the default behavior
 
 class BMFParser(GenericParser):
-    """
-    Specialized parser for BM&F-style invoices.
-    Handles positional value extraction.
-    """
 
     def parse_pdf(self, file_path: str) -> Dict:
         text = self._extract_text(file_path)
@@ -383,7 +469,6 @@ class BMFParser(GenericParser):
     def _extract_trades(self, text: str) -> List[Dict]:
         trades = []
         lines = text.splitlines()
-
         for line in lines:
             tokens = line.strip().split()
             if len(tokens) >= 9 and re.match(r"^[CV]$", tokens[0]) and re.match(r"\d{2}/\d{2}/\d{4}", tokens[2]):
@@ -406,30 +491,104 @@ class BMFParser(GenericParser):
         return trades
 
     def _extract_summary_values(self, text: str, file_path: str) -> Dict[str, float]:
-        # Simplified placeholder; real version will use positional extraction
-        return super()._extract_summary_values(text)
+      summary = {}
 
-# === TRADE PROCESSOR ===
+      LABEL_POSITIONS = {
+          "Venda disponível": (0, 0),
+          "Compra disponível": (0, 1),
+          "Venda Opções": (0, 2),
+          "Compra Opções": (0, 3),
+          "Valor dos negócios": (0, 4),
+          "IRRF": (1, 0),
+          "IRRF Day Trade (proj.)": (1, 1),
+          "Taxa operacional": (1, 2),
+          "Taxa registro BM&F": (1, 3),
+          "Taxas BM&F (emol+f.gar)": (1, 4),
+          "Outros Custos": (2, 0),
+          "ISS": (2, 1),
+          "Ajuste de posição": (2, 2),
+          "Ajuste day trade": (2, 3),
+          "Total das despesas": (2, 4),
+          "Outros": (3, 0),
+          "IRRF Corretagem": (3, 1),
+          "Total Conta Investimento": (3, 2),
+          "Total Conta Normal": (3, 3),
+          "Total líquido (#)": (3, 4),
+          "Total líquido da nota": (3, 5)
+      }
+
+      # Init with 0.0
+      for key in LABEL_POSITIONS:
+          summary[key] = 0.0
+
+      try:
+          with pdfplumber.open(file_path) as pdf:
+              for page in pdf.pages:
+                  page_text = page.extract_text() or ""
+                  lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+
+                  label_blocks = [[] for _ in range(4)]
+                  number_blocks = [[] for _ in range(4)]
+                  block_index = -1
+
+                  for line in lines:
+                      if any(label in line for label in LABEL_POSITIONS):
+                          block_index += 1
+                          label_blocks[block_index] = re.split(r"\s{2,}", line)
+                      elif re.search(r"\d", line) and block_index >= 0:
+                          clean = re.sub(r"[^\d.,\sD]", "", line)
+                          number_blocks[block_index] += [val.strip() for val in clean.split() if re.search(r"[\d,]", val)]
+
+                  # Special cleaning for the last line block (block 3)
+                  if len(number_blocks) > 3:
+                      block_3_lines = number_blocks[3]
+                      combined = " ".join(block_3_lines)
+                      number_blocks[3] = re.findall(r"[\d.,]+", combined)
+
+                  # Extract using positional logic
+                  for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
+                      try:
+                          value_str = number_blocks[block_idx][pos_idx]
+                          value = self._clean_numeric(value_str)
+
+                          # Check if 'D' follows this number on the same line
+                          debit_flag = False
+                          for line in lines:
+                              if value_str in line:
+                                  # Look for 'D' after the number
+                                  after = line.split(value_str, 1)[1]
+                                  if re.search(r'\bD\b', after):
+                                      debit_flag = True
+                                  break
+
+                          summary[label] = -abs(value) if debit_flag else value
+                      except (IndexError, ValueError):
+                          summary[label] = 0.0
+
+      except Exception as e:
+          print(f"❌ Failed to extract BM&F summary with positional logic: {e}")
+          for label in LABEL_POSITIONS:
+              summary[label] = 0.0
+
+      # Map "Valor dos negócios" to "Valor das operações" to support consistency check
+      if "Valor dos negócios" in summary:
+          summary["Valor das operações"] = summary["Valor dos negócios"]
+
+      return summary
+
+
+# === PROCESS MULTIPLE FILES ===
 
 class TradeProcessor:
-    """
-    Coordinates end-to-end PDF processing: parsing, aggregation, and consistency checks.
-    """
-
-    PARSERS = []
-
-    @classmethod
-    def register_parsers(cls):
-        from copy import deepcopy
-        from_types = [BTG_CONFIG, ITAU_CONFIG, AGORA_CONFIG, XP_CONFIG]
-        cls.PARSERS = [GenericParser(deepcopy(cfg)) for cfg in from_types]
+    PARSERS = [
+        GenericParser(BTG_CONFIG),
+        GenericParser(ITAU_CONFIG),
+        GenericParser(AGORA_CONFIG),
+        GenericParser(XP_CONFIG),
+    ]
 
     @classmethod
     def process_pdfs(cls, file_paths: List[str]):
-        """
-        Parses a list of PDF files and returns trades and summary records.
-        """
-        cls.register_parsers()
         all_trades, all_summaries = [], []
 
         for file_path in file_paths:
@@ -441,11 +600,13 @@ class TradeProcessor:
                 for parser in cls.PARSERS:
                     if cls._match_broker_by_signature(text, parser):
                         invoice_type = classify_invoice_type(text)
+
                         if invoice_type == "avista":
                             matched_parser = AVistaParser(parser.config)
                         elif invoice_type == "bmf":
                             matched_parser = BMFParser(parser.config)
                         else:
+                            print(f"⚠️ Unknown invoice type for {file_path}")
                             matched_parser = parser  # fallback
                         break
 
@@ -455,24 +616,27 @@ class TradeProcessor:
 
                 result = matched_parser.parse_pdf(file_path)
 
-                for trade in result.get("trades", []):
+                trades = result.get("trades", [])
+                summary = result.get("summary", {})
+                invoice = result.get("invoice", "")
+
+                for trade in trades:
                     trade.update({
                         "broker": result["broker"],
                         "date": result["date"],
-                        "invoice": result["invoice"],
-                        "client_cpf": result["client_cpf"]
+                        "invoice": invoice,
+                        "client_cpf": result.get("client_cpf", "")
                     })
                     all_trades.append(trade)
 
-                tipo_val = result["trades"][0].get("Tipo") if result.get("trades") else "Unknown"
-
-                if result.get("summary"):
-                    all_summaries.append({
-                        "invoice": result["invoice"],
-                        "broker": result["broker"],
-                        "Tipo": tipo_val,
-                        **result["summary"]
-                    })
+                if summary:
+                  summary_row = {
+                      "invoice": invoice,
+                      "broker": result["broker"],
+                      "Tipo": trade.get("Tipo", "Unknown"), # Add 'Tipo' to summary row
+                      **summary
+                  }
+                  all_summaries.append(summary_row)
 
             except Exception as e:
                 print(f"❌ Error processing {file_path}: {e}")
@@ -481,7 +645,6 @@ class TradeProcessor:
 
     @staticmethod
     def _match_broker_by_signature(text: str, parser: GenericParser) -> bool:
-        """Matches text content with known broker signature patterns."""
         for pattern in parser.config.signature_patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return True
@@ -495,7 +658,7 @@ class TradeProcessor:
             return pd.DataFrame()
 
         prepared_files = prepare_files_for_processing(pdf_files)
-        trades, summaries = cls.process_pdfs(prepared_files)
+        trades, summaries = TradeProcessor.process_pdfs(prepared_files)
         df_trades = pd.DataFrame(trades)
 
         if "Valor Operação" in df_trades.columns and "Valor Operação / Ajuste" in df_trades.columns:
@@ -519,12 +682,14 @@ class TradeProcessor:
             trade_value_column = "valor_trades"
 
             if trade_value_column:
+                # 1. Get sum of trades per invoice + broker
                 trade_totals = (
                     df_trades.groupby(["invoice", "broker", "Tipo"])[trade_value_column]
                     .sum()
                     .reset_index()
                 )
 
+                # 2. Get summary values per invoice + broker using BOTH possible keys
                 summary_candidates = ["Valor das operações", "Valor dos negócios"]
                 valor_col = None
                 for col in summary_candidates:
@@ -551,8 +716,7 @@ class TradeProcessor:
                     df_consistency[trade_value_column] = df_consistency[trade_value_column].fillna(0)
                     df_consistency["valor_das_operacoes"] = df_consistency["valor_das_operacoes"].fillna(0)
                     df_consistency["Diferença"] = (
-                        df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]
-                    ).round(2)
+                                df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]).round(2)
                     df_consistency["Status"] = df_consistency["Diferença"].apply(
                         lambda x: "OK" if abs(x) < 0.01 else "Inconsistência")
                 else:
@@ -562,6 +726,7 @@ class TradeProcessor:
         else:
             df_consistency = pd.DataFrame()
 
+        # === RENAME COLUMNS FOR EXPORT ===
         df_trades.rename(columns={
             "invoice": "Número da Nota", "broker": "Corretora",
             "client_cpf": "CPF", "date": "Data da Operação"
@@ -576,193 +741,216 @@ class TradeProcessor:
                 "invoice": "Número da Nota", "broker": "Corretora"
             }, inplace=True)
 
+        # === PREPARE OUTPUT ===
         cpf_value = df_trades["CPF"].iloc[0].replace('.', '').replace('-', '')
         output_file = os.path.join("tmp", f"trades_output - {cpf_value}.xlsx")
 
-        export_to_excel(df_trades, df_summary, df_consistency, output_file)
+        def autofit_columns(worksheet):
+            from openpyxl.utils import get_column_letter
+
+            column_widths = {}
+
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    if cell.value:
+                        col_letter = get_column_letter(cell.column)
+                        current_width = column_widths.get(col_letter, 0)
+                        value_length = len(str(cell.value))
+                        column_widths[col_letter] = max(current_width, value_length)
+
+                        # Center align headers (bold cells)
+                        if cell.font and cell.font.bold:
+                            cell.alignment = Alignment(horizontal="center")
+
+            for col_letter, width in column_widths.items():
+                worksheet.column_dimensions[col_letter].width = width + 2  # +2 for padding
+
+        with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+            workbook = writer.book
+
+            # === Negócios ===
+            ws = workbook.create_sheet(title="Negócios")
+            row_idx = 1
+
+            if not df_trades.empty:
+                tipos_ordenados = ["A Vista", "BM&F"]
+                for tipo in tipos_ordenados:
+                    tipo_lower = tipo.strip().lower()
+                    if tipo_lower not in df_trades["Tipo"].str.lower().str.strip().unique():
+                        continue
+
+                    block = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower].copy()
+                    block = block.sort_values(by=["Corretora", "Data da Operação"])
+
+                    if tipo_lower == "a vista":
+                        block_columns = [
+                            "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
+                            "Negociação", "C/V", "Tipo Mercado", "Especificação do Título",
+                            "Quantidade", "Preço / Ajuste", "Valor Operação / Ajuste", "D/C"
+                        ]
+                    elif tipo_lower == "bm&f":
+                        block_columns = [
+                            "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
+                            "C/V", "Mercadoria", "Vencimento", "Quantidade", "Preço / Ajuste",
+                            "Tipo Negócio", "Valor Operação", "D/C", "Taxa Operacional"
+                        ]
+                    else:
+                        block_columns = block.columns.tolist()
+
+                    block = block[[col for col in block_columns if col in block.columns]]
+
+                    ws.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
+
+                    row_idx += 2
+
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        ws.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
+                    row_idx += 1
+
+                    for _, row in block.iterrows():
+                        for col_idx, col_name in enumerate(block.columns, start=1):
+                            ws.cell(row=row_idx, column=col_idx, value=row[col_name])
+                        row_idx += 1
+
+                    row_idx += 1
+
+            autofit_columns(ws)
+
+            # === Resumo ===
+            ws_resumo = workbook.create_sheet(title="Resumo")
+            row_idx = 1
+
+            if not df_summary.empty:
+                tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist()  # Get unique types from summary data
+
+                for tipo_lower in tipos_disponiveis:
+                    tipo_lower = tipo_lower.lower().strip()
+                    block = df_summary[df_summary["Tipo"].str.lower().str.strip() == tipo_lower].copy()
+
+                    if block.empty:
+                        continue
+
+                    block = block.sort_values(by=["Corretora", "Número da Nota"])
+
+                    if tipo_lower == "a vista":
+                        block_columns = [
+                            "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
+                            "Opções - compras", "Opções - vendas", "Operações à termo",
+                            "Valor das oper. c/ títulos públ. (v. nom.)",
+                            "Valor das operações", "Valor líquido das operações", "Taxa de liquidação",
+                            "Taxa de Registro",
+                            "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.", "Emolumentos", "Total Bovespa / Soma",
+                            "Clearing", "Execução", "Execução casa", "Corretagem", "ISS", "IRRF sobre operações",
+                            "Outras",
+                            "Total corretagem / Despesas", "Valor a ser Liquidado"
+                        ]
+                    elif tipo_lower == "bm&f":
+                        block_columns = [
+                            "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções",
+                            "Compra Opções", "Valor dos negócios",
+                            "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional", "Taxa registro BM&F",
+                            "Taxas BM&F (emol+f.gar)",
+                            "Outros Custos", "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas",
+                            "Outros",
+                            "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal", "Total líquido (#)",
+                            "Total líquido da nota"
+                        ]
+
+                    else:
+                        block_columns = block.columns.tolist()
+
+                    block = block[[col for col in block_columns if col in block.columns]]
+
+                    ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
+                    row_idx += 2
+
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        ws_resumo.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
+                    row_idx += 1
+
+                    for _, row in block.iterrows():
+                        for col_idx, col_name in enumerate(block.columns, start=1):
+                            ws_resumo.cell(row=row_idx, column=col_idx, value=row[col_name])
+                        row_idx += 1
+
+                    row_idx += 1
+
+            autofit_columns(ws_resumo)
+
+            # === Consistência ===
+            if not df_consistency.empty:
+                ws_consistencia = workbook.create_sheet(title="Consistência")
+                row_idx = 1
+
+                if "Tipo" in df_consistency.columns:
+                    tipos_consistencia = df_consistency["Tipo"].dropna().unique().tolist()
+                else:
+                    tipos_consistencia = ["Unknown"]  # Default if 'Tipo' is not in consistency
+
+                for tipo in tipos_consistencia:
+                    tipo_lower = tipo.strip().lower()
+                    block = df_consistency[df_consistency["Tipo"].str.lower().str.strip() == tipo_lower].copy()
+
+                    if block.empty:
+                        continue
+
+                    block = block.sort_values(by=["Corretora", "Número da Nota"])
+
+                    block_columns = ["Corretora", "Número da Nota", "Tipo"]
+
+                    # Show correct raw value column for each Tipo
+
+                    if tipo_lower == "bm&f":
+                        temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
+                        if "Valor Operação" in temp.columns:
+                            grouped = temp.groupby(["Número da Nota", "Corretora"])[
+                                "Valor Operação"].sum().reset_index()
+                            block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
+                            block_columns.append("Valor Operação")
+
+                    elif tipo_lower == "a vista":
+                        temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
+                        if "Valor Operação / Ajuste" in temp.columns:
+                            grouped = temp.groupby(["Número da Nota", "Corretora"])[
+                                "Valor Operação / Ajuste"].sum().reset_index()
+                            block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
+                            block_columns.append("Valor Operação / Ajuste")
+
+                    block_columns += ["valor_das_operacoes", "Diferença", "Status"]
+                    block = block[[col for col in block_columns if col in block.columns]]
+
+                    ws_consistencia.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
+                    row_idx += 2
+
+                    # === Cabeçalhos formatados com \n e alinhamento central
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        new_label = col_name
+
+                        if tipo_lower == "a vista":
+                            if col_name == "Valor Operação / Ajuste":
+                                new_label = "Valor Operação / Ajuste\n (Negócios Individuais)"
+                            elif col_name == "valor_das_operacoes":
+                                new_label = "Valor das Operações\n (Resumo da Nota)"
+                        elif tipo_lower == "bm&f":
+                            if col_name == "Valor Operação":
+                                new_label = "Valor Operação\n (Negócios Individuais)"
+                            elif col_name == "valor_das_operacoes":
+                                new_label = "Valor das Operações\n (Resumo da Nota)"
+
+                        cell = ws_consistencia.cell(row=row_idx, column=col_idx, value=new_label)
+                        cell.font = Font(bold=True)
+                        cell.alignment = Alignment(wrap_text=True, horizontal="center")
+
+                    row_idx += 1  # Avança para a linha de dados
+                    # === Dados da consistência
+                    for _, row in block.iterrows():
+                        for col_idx, col_name in enumerate(block.columns, start=1):
+                            ws_consistencia.cell(row=row_idx, column=col_idx, value=row[col_name])
+                        row_idx += 1
+
+                    row_idx += 1  # Espaçamento entre blocos
+
+                    # === Autoajuste de colunas no final
+                    autofit_columns(ws_consistencia)
 
         return df_trades
-
-# === EXCEL EXPORT PLACEHOLDER ===
-
-def export_to_excel(df_trades: pd.DataFrame, df_summary: pd.DataFrame, output_path: str) -> None:
-    """
-    Placeholder: Exports given DataFrames to Excel file with formatted sheets.
-    Should handle Negócios, Resumo, Consistência.
-    """
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    default_sheet = wb.active
-    wb.remove(default_sheet)  # ⛔ Prevent "no visible sheet" Excel error
-
-    if not df_trades.empty:
-        ws = wb.create_sheet(title="Negócios")
-
-    # Simple dump: replace this with structured export logic
-    for r_idx, row in enumerate(df_trades.itertuples(index=False), start=2):
-        for c_idx, value in enumerate(row, start=1):
-            ws.cell(row=r_idx, column=c_idx, value=value)
-
-    for c_idx, col_name in enumerate(df_trades.columns, start=1):
-        ws.cell(row=1, column=c_idx, value=col_name).font = Font(bold=True)
-
-    wb.save(output_path)
-    print(f"✅ Excel saved to {output_path}")
-
-# === FULL EXCEL EXPORT ===
-
-def export_to_excel(df_trades: pd.DataFrame, df_summary: pd.DataFrame, df_consistency: pd.DataFrame, output_file: str) -> pd.DataFrame:
-    """
-    Writes the trades, summary, and consistency checks into an Excel workbook.
-    Includes formatting and structured layout by trade type.
-    Returns the df_trades DataFrame.
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment
-    from openpyxl.utils import get_column_letter
-
-    wb = Workbook()
-    default_sheet = wb.active
-    wb.remove(default_sheet)
-    sheets_added = False
-
-    def autofit_columns(worksheet):
-        column_widths = {}
-        for row in worksheet.iter_rows():
-            for cell in row:
-                if cell.value:
-                    col_letter = get_column_letter(cell.column)
-                    current_width = column_widths.get(col_letter, 0)
-                    value_length = len(str(cell.value))
-                    column_widths[col_letter] = max(current_width, value_length)
-                    if cell.font and cell.font.bold:
-                        cell.alignment = Alignment(horizontal="center")
-        for col_letter, width in column_widths.items():
-            worksheet.column_dimensions[col_letter].width = width + 2
-
-    # === Negócios Sheet ===
-    if not df_trades.empty:
-        ws = wb.create_sheet(title="Negócios")
-        sheets_added = True
-        row_idx = 1
-
-        tipos_ordenados = ["A Vista", "BM&F"]
-        for tipo in tipos_ordenados:
-            tipo_lower = tipo.strip().lower()
-            if tipo_lower not in df_trades["Tipo"].str.lower().str.strip().unique():
-                continue
-
-            block = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower].copy()
-            block = block.sort_values(by=["Corretora", "Data da Operação"])
-
-            if tipo_lower == "a vista":
-                block_columns = [
-                    "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
-                    "Negociação", "C/V", "Tipo Mercado", "Especificação do Título",
-                    "Quantidade", "Preço / Ajuste", "Valor Operação / Ajuste", "D/C"
-                ]
-            elif tipo_lower == "bm&f":
-                block_columns = [
-                    "CPF", "Tipo", "Corretora", "Data da Operação", "Número da Nota",
-                    "C/V", "Mercadoria", "Vencimento", "Quantidade", "Preço / Ajuste",
-                    "Tipo Negócio", "Valor Operação", "D/C", "Taxa Operacional"
-                ]
-            else:
-                block_columns = block.columns.tolist()
-
-            block = block[[col for col in block_columns if col in block.columns]]
-
-            ws.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
-            row_idx += 2
-
-            for col_idx, col_name in enumerate(block.columns, start=1):
-                ws.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
-            row_idx += 1
-
-            for _, row in block.iterrows():
-                for col_idx, col_name in enumerate(block.columns, start=1):
-                    ws.cell(row=row_idx, column=col_idx, value=row[col_name])
-                row_idx += 1
-            row_idx += 1
-
-        autofit_columns(ws)
-
-    # === Resumo Sheet ===
-    if not df_summary.empty:
-        ws = wb.create_sheet(title="Resumo")
-        sheets_added = True
-        row_idx = 1
-
-        tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist()
-
-        for tipo_lower in tipos_disponiveis:
-            tipo_lower = tipo_lower.lower().strip()
-            block = df_summary[df_summary["Tipo"].str.lower().str.strip() == tipo_lower].copy()
-
-            if block.empty:
-                continue
-
-            block = block.sort_values(by=["Corretora", "Número da Nota"])
-            block_columns = block.columns.tolist()
-            block = block[[col for col in block_columns if col in block.columns]]
-
-            ws.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
-            row_idx += 2
-
-            for col_idx, col_name in enumerate(block.columns, start=1):
-                ws.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
-            row_idx += 1
-
-            for _, row in block.iterrows():
-                for col_idx, col_name in enumerate(block.columns, start=1):
-                    ws.cell(row=row_idx, column=col_idx, value=row[col_name])
-                row_idx += 1
-            row_idx += 1
-
-        autofit_columns(ws)
-
-    # === Consistência Sheet ===
-    if not df_consistency.empty:
-        ws = wb.create_sheet(title="Consistência")
-        sheets_added = True
-        row_idx = 1
-
-        tipos_consistencia = df_consistency["Tipo"].dropna().unique().tolist() if "Tipo" in df_consistency.columns else ["Unknown"]
-
-        for tipo in tipos_consistencia:
-            tipo_lower = tipo.strip().lower()
-            block = df_consistency[df_consistency["Tipo"].str.lower().str.strip() == tipo_lower].copy()
-
-            if block.empty:
-                continue
-
-            block = block.sort_values(by=["Corretora", "Número da Nota"])
-            block_columns = block.columns.tolist()
-            block = block[[col for col in block_columns if col in block.columns]]
-
-            ws.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
-            row_idx += 2
-
-            for col_idx, col_name in enumerate(block.columns, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=col_name)
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(wrap_text=True, horizontal="center")
-            row_idx += 1
-
-            for _, row in block.iterrows():
-                for col_idx, col_name in enumerate(block.columns, start=1):
-                    ws.cell(row=row_idx, column=col_idx, value=row[col_name])
-                row_idx += 1
-            row_idx += 1
-
-        autofit_columns(ws)
-
-    # === Fallback: add dummy sheet if no sheets were created
-    if not sheets_added:
-        ws = wb.create_sheet(title="Sem Dados")
-        ws["A1"] = "Nenhum dado disponível para exportar."
-
-    wb.save(output_file)
-    print(f"✅ Excel salvo em {output_file}")
-    return df_trades
