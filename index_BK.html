@@ -2,153 +2,116 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Extrator de Notas de Corretagem</title>
-  <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #121212;
-      color: #f5f5f5;
-      margin: 0;
-      padding: 40px;
-    }
-
-    h1 {
-      color: #00c9a7;
-      margin-bottom: 30px;
-    }
-
-    .upload-box {
-      background-color: #1e1e1e;
-      padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-      max-width: 600px;
-      margin-bottom: 30px;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 10px;
-      font-weight: bold;
-      color: #ccc;
-    }
-
-    input[type="file"] {
-      padding: 10px;
-      background-color: #2a2a2a;
-      color: #f5f5f5;
-      border: 1px solid #444;
-      border-radius: 6px;
-      width: 100%;
-    }
-
-    button {
-      margin-top: 20px;
-      padding: 12px 20px;
-      background-color: #00c9a7;
-      border: none;
-      border-radius: 6px;
-      font-weight: bold;
-      color: #000;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background-color: #00a78e;
-    }
-
-    .status {
-      margin-top: 20px;
-      font-size: 1.1em;
-      font-weight: bold;
-      color: #f5f5f5;
-    }
-
-    .file-list {
-      background-color: #1e1e1e;
-      padding: 20px;
-      border-radius: 10px;
-      margin-top: 20px;
-    }
-
-    .file-list ul {
-      list-style: none;
-      padding-left: 0;
-    }
-
-    .file-list li {
-      padding: 5px 0;
-      border-bottom: 1px solid #333;
-    }
-
-    .message {
-      background-color: #333;
-      border-left: 5px solid #00c9a7;
-      padding: 10px;
-      margin-bottom: 15px;
-      border-radius: 6px;
-    }
-
-    .error {
-      border-left-color: #e74c3c;
-    }
-  </style>
+  <title>NO-DIG - Extrator de Notas</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
-  <h1>Extrator de Notas de Corretagem</h1>
-
-  <div class="upload-box">
-    <form method="post" enctype="multipart/form-data">
-      <label for="files">Selecionar Arquivos:</label>
-      <input type="file" name="files" id="files" multiple accept=".pdf" required>
-      <button type="submit">Processar</button>
-    </form>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="message {% if category == 'error' %}error{% endif %}">
-            {{ message }}
-          </div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-
-    {% if processing %}
-      <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
-      <script>
-        async function pollStatus() {
-          try {
-            const res = await fetch('/check_status');
-            const data = await res.json();
-            if (data.status === 'ready') {
-              window.location.href = "/download";
-            } else if (data.status === 'error') {
-              document.getElementById("status").innerText = "❌ Erro ao processar os arquivos.";
-            } else {
-              setTimeout(pollStatus, 3000);
-            }
-          } catch (err) {
-            console.error("Erro na verificação:", err);
-            setTimeout(pollStatus, 5000);
-          }
-        }
-        pollStatus();
-      </script>
-    {% endif %}
-  </div>
-
-  {% if uploaded_files %}
-    <div class="file-list">
-      <h2>Arquivos enviados:</h2>
-      <ul>
-        {% for file in uploaded_files %}
-          <li>{{ file }}</li>
-        {% endfor %}
-      </ul>
+  <header class="top-bar">
+    <div class="title-area">
+      <h1>NO-DIG - Transfira suas notas de Corretagem do PDF para o Excel.</h1>
+      <p class="subtitle">Nunca mais digite uma nota!</p>
     </div>
-  {% endif %}
+    <nav class="menu">
+      <a href="/orientacoes">Orientações</a>
+      <a href="/notas">Notas disponíveis</a>
+      <a href="/login">Login</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="upload-section">
+      <form method="post" enctype="multipart/form-data" id="upload-form">
+        <div class="form-row">
+          <label for="files" class="form-title">Carregar e Processar os PDFs das notas.</label>
+          <div class="button-group">
+            <label for="files" class="custom-button">Carregar</label>
+            <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
+            <button type="submit" class="custom-button">Processar</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="message-section">
+      <h3>Mensagens</h3>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="message {% if category == 'error' %}error{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% if processing %}
+        <div id="processing-area">
+          <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
+          <ul id="file-names" class="file-list"></ul>
+        </div>
+        <p class="status" id="download-message" style="display: none;"></p>
+
+        <script>
+          const fileInput = document.getElementById("files");
+
+          document.getElementById("files").addEventListener("change", function () {
+            const fileList = document.getElementById("file-names");
+            fileList.innerHTML = "";
+
+            if (this.files.length > 0) {
+              for (let file of this.files) {
+                const li = document.createElement("li");
+                li.textContent = file.name;
+                fileList.appendChild(li);
+              }
+            }
+          });
+
+          function clearAfterDownload() {
+            const processingArea = document.getElementById("processing-area");
+            if (processingArea) {
+              processingArea.remove();
+            }
+
+            const msg = document.getElementById("download-message");
+            msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
+            msg.style.display = "block";
+          }
+
+          async function pollStatus() {
+            try {
+              const res = await fetch('/check_status');
+              const data = await res.json();
+
+              if (data.status === 'ready') {
+                const link = document.createElement('a');
+                link.href = "/download";
+                link.download = "resultado.xlsx";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                clearAfterDownload();
+
+              } else if (data.status === 'error') {
+                document.getElementById("status").innerText = "❌ Erro ao processar os arquivos.";
+              } else {
+                setTimeout(pollStatus, 3000);
+              }
+
+            } catch (err) {
+              console.error("Erro na verificação:", err);
+              setTimeout(pollStatus, 5000);
+            }
+          }
+
+          pollStatus();
+        </script>
+      {% endif %}
+    </section>
+  </main>
 
 </body>
 </html>

@@ -15,8 +15,13 @@
     <nav class="menu">
       <a href="/orientacoes">Orientações</a>
       <a href="/notas">Notas disponíveis</a>
-      <a href="/login">Login</a>
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('auth.logout') }}">Logout</a>
+      {% else %}
+        <a href="{{ url_for('auth.login') }}">Login</a>
+      {% endif %}
     </nav>
+
   </header>
 
   <main class="container">
@@ -29,6 +34,7 @@
             <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
             <button type="submit" class="custom-button">Processar</button>
           </div>
+          <p id="file-message" class="status" style="margin-top: 10px;"></p>
         </div>
       </form>
     </section>
@@ -56,16 +62,22 @@
         <script>
           const fileInput = document.getElementById("files");
 
-          document.getElementById("files").addEventListener("change", function () {
+          fileInput.addEventListener("change", function () {
             const fileList = document.getElementById("file-names");
+            const fileMsg = document.getElementById("file-message");
             fileList.innerHTML = "";
+            fileMsg.innerText = "";
 
             if (this.files.length > 0) {
+              const names = [];
               for (let file of this.files) {
                 const li = document.createElement("li");
                 li.textContent = file.name;
                 fileList.appendChild(li);
+                names.push(file.name);
               }
+
+              fileMsg.innerText = "📎 Arquivos carregados: " + names.join(", ") + ". Clique no botão Processar.";
             }
           });
 
