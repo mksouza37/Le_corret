@@ -106,9 +106,7 @@ def extract_dates_per_page(file_path: str) -> List[Optional[str]]:
             text = page.extract_text() or ""
             found_date = None
             for pattern in [
-                r"Data\s+Preg[aã]o\s*(?:
-|
-|\s)*(\d{2}/\d{2}/\d{4})",
+                r"Data\s+Preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})",
                 r"(\d{2}/\d{2}/\d{4})"
             ]:
                 match = re.search(pattern, text, re.IGNORECASE)
