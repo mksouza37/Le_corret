@@ -1,133 +1,126 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <title>NO-DIG - Extrator de Notas</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #ffffff;
+  color: #000;
+}
 
-  <header class="top-bar">
-    <div class="title-area">
-      <h1>NO-DIG - Transfira suas notas de Corretagem do PDF para o Excel.</h1>
-      <p class="subtitle">Nunca mais digite uma nota!</p>
-    </div>
-    <nav class="menu">
-      <a href="/orientacoes">Orientações</a>
-      <a href="/notas">Notas disponíveis</a>
-      {% if current_user.is_authenticated %}
-        <a href="{{ url_for('auth.logout') }}">Logout</a>
-      {% else %}
-        <a href="{{ url_for('auth.login') }}">Login</a>
-      {% endif %}
-    </nav>
-  </header>
+.top-bar {
+  background-color: #7da2ce;
+  padding: 20px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  flex-wrap: wrap;
+}
 
-  <main class="container">
-    <section class="upload-section">
-      <form method="post" enctype="multipart/form-data" id="upload-form">
-        <div class="form-row">
-          <label for="files" class="form-title">Carregar e Processar os PDFs das notas.</label>
-          <div class="button-group">
-            <label for="files" class="custom-button">Carregar</label>
-            <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
-            <button type="submit" class="custom-button">Processar</button>
-          </div>
-          <p id="file-message" class="status" style="margin-top: 10px;"></p>
-        </div>
-      </form>
-    </section>
+.title-area h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
 
-    <section class="message-section">
-      <h3>Mensagens</h3>
+.subtitle {
+  font-size: 0.9rem;
+  color: #333;
+  margin-top: 4px;
+}
 
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          {% for category, message in messages %}
-            <div class="message {% if category == 'error' %}error{% endif %}">
-              {{ message }}
-            </div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
+.menu {
+  display: flex;
+  gap: 20px;
+}
 
-      {% if processing %}
-        <div id="processing-area">
-          <p class="status" id="status">⏳ Seus arquivos estão sendo processados...</p>
-          <ul id="file-names" class="file-list"></ul>
-        </div>
-        <p class="status" id="download-message" style="display: none;"></p>
-      {% endif %}
-    </section>
-  </main>
+.menu a {
+  text-decoration: none;
+  font-weight: bold;
+  color: #000;
+}
 
-  <script>
-    const fileInput = document.getElementById("files");
+.container {
+  display: flex;
+  justify-content: space-between;
+  padding: 40px;
+  flex-wrap: wrap;
+}
 
-    fileInput.addEventListener("change", function () {
-      const fileList = document.getElementById("file-names");
-      const fileMsg = document.getElementById("file-message");
+.upload-section, .message-section {
+  width: 48%;
+  min-width: 300px;
+}
 
-      if (fileList) fileList.innerHTML = "";
-      if (fileMsg) fileMsg.innerText = "";
+.form-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
 
-      if (this.files.length > 0) {
-        const names = [];
-        for (let file of this.files) {
-          if (fileList) {
-            const li = document.createElement("li");
-            li.textContent = file.name;
-            fileList.appendChild(li);
-          }
-          names.push(file.name);
-        }
+.form-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
 
-        if (fileMsg) {
-          fileMsg.innerText = "📎 Arquivos carregados: " + names.join(", ") + ". Clique no botão Processar.";
-        }
-      }
-    });
+.button-group {
+  display: flex;
+  gap: 12px;
+}
 
-    function clearAfterDownload() {
-      const processingArea = document.getElementById("processing-area");
-      if (processingArea) {
-        processingArea.remove();
-      }
+.custom-button {
+  background-color: #000;
+  color: white;
+  padding: 12px 24px;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 200px;
+  text-align: center;
+  transition: background-color 0.3s ease;
+  display: inline-block;
+}
 
-      const msg = document.getElementById("download-message");
-      msg.innerText = "✅ Seu Excel foi baixado. Consulte-o na pasta Downloads do seu computador.";
-      msg.style.display = "block";
-    }
+.custom-button:hover {
+  background-color: #333;
+}
 
-    async function pollStatus() {
-      try {
-        const res = await fetch('/check_status');
-        const data = await res.json();
+.message-section {
+  border: 1px solid black;
+  padding: 20px;
+  margin-top: 20px;
+  background-color: #f5f5f5;
+}
 
-        if (data.status === 'ready') {
-          const link = document.createElement('a');
-          link.href = "/download";
-          link.download = "resultado.xlsx";
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+.message-section h3 {
+  margin-top: 0;
+}
 
-          clearAfterDownload();
-        } else if (data.status === 'error') {
-          const statusMsg = document.getElementById("status");
-          if (statusMsg) statusMsg.innerText = "❌ Erro ao processar os arquivos.";
-        } else {
-          setTimeout(pollStatus, 3000);
-        }
+.message {
+  background-color: #eee;
+  padding: 10px;
+  border-left: 5px solid #00c9a7;
+  margin-bottom: 10px;
+  border-radius: 4px;
+}
 
-      } catch (err) {
-        console.error("Erro na verificação:", err);
-        setTimeout(pollStatus, 5000);
-      }
-    }
+.message.error {
+  border-left-color: #e74c3c;
+}
 
-    pollStatus();
-  </script>
+.status {
+  margin-top: 10px;
+  font-weight: bold;
+}
 
-</body>
-</html>
+.file-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 5px;
+}
+
+.file-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid #ccc;
+  font-size: 0.95rem;
+}
