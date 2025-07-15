@@ -182,6 +182,73 @@ class BrokerConfig:
     trade_end_marker: str
     signature_patterns: List[str]
 
+# === BROKER CONFIGURATIONS ===
+
+BTG_CONFIG = BrokerConfig(
+    name="BTG",
+    invoice_patterns=[
+        r"Nota\s+de\s+Negociação\s+N(?:º|o|\u00b0)?\s*[:\-]?\s*(\d+)",
+        r"Nr\.?\s*nota\s*[:\-]?\s*(\d+)",
+        r"Nota\s*[:\-]?\s*(\d+)"
+    ],
+    date_patterns=[
+        r'Data\s+preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})',
+        r'(\d{2}/\d{2}/\d{4})'
+    ],
+    client_patterns={},
+    trade_start_marker="Negócios realizados",
+    trade_end_marker="Resumo dos Negócios",
+    signature_patterns=[r"BTG\s+Pactual", r"BTG\s+Corretora"]
+)
+
+ITAU_CONFIG = BrokerConfig(
+    name="ITAU",
+    invoice_patterns=[
+        r"Nr\.?\s*Nota\s*(?:Folha)?\s*(?:\d+\s+)?(\d+)",
+    ],
+    date_patterns=[
+        r"Data\s+Preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})",
+        r'(\d{2}/\d{2}/\d{4})'
+    ],
+    client_patterns={},
+    trade_start_marker="Negócios Realizados",
+    trade_end_marker="Resumo de negócios",
+    signature_patterns=[r"Ita[úu]\s+Corretora", r"ITA[ÚU] UNIBANCO"],
+)
+
+AGORA_CONFIG = BrokerConfig(
+    name="AGORA",
+    invoice_patterns=[
+        r"Nota\s+de\s+Corretagem\s*Nr\.?\s*Nota\s*(?:Folha)?\s*(?:\d+\s+)?(\d+)",
+        r"Nr\.?\s*Nota\s*(?:\d+\s+)?(\d+)"
+    ],
+    date_patterns=[
+        r"Data\s+preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})",
+        r'(\d{2}/\d{2}/\d{4})'
+    ],
+    client_patterns={},
+    trade_start_marker="Negocios Realizados",
+    trade_end_marker="Resumo dos Negócios",
+    signature_patterns=[
+        r"AGORA\s+CORRETORA", r"agorainvestimentos\.com\.br"],
+)
+
+XP_CONFIG = BrokerConfig(
+    name="XP",
+    invoice_patterns=[
+        r"NOTA\s+DE\s+NEGOCIA[ÇC][AÃ]O\s*Nr\.?\s*nota\s*(\d+)",
+        r"Nr\.?\s*nota\s*(\d+)"
+    ],
+    date_patterns=[
+        r"Data\s+preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})",
+        r'(\d{2}/\d{2}/\d{4})'
+    ],
+    client_patterns={},
+    trade_start_marker="Negócios realizados",
+    trade_end_marker="Resumo dos Negócios",
+    signature_patterns=[
+        r"XP\s+INVESTIMENTOS\s+CORRETORA", r"xpi\.com\.br"]
+)
 
 # === BASE PARSER CLASS ===
 
