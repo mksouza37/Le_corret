@@ -464,11 +464,13 @@ class TradeProcessor:
                     })
                     all_trades.append(trade)
 
+                tipo_val = result["trades"][0].get("Tipo") if result.get("trades") else "Unknown"
+
                 if result.get("summary"):
                     all_summaries.append({
                         "invoice": result["invoice"],
                         "broker": result["broker"],
-                        "Tipo": trade.get("Tipo", "Unknown"),
+                        "Tipo": tipo_val,
                         **result["summary"]
                     })
 
@@ -591,8 +593,11 @@ def export_to_excel(df_trades: pd.DataFrame, df_summary: pd.DataFrame, output_pa
     from openpyxl import Workbook
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Negócios"
+    default_sheet = wb.active
+    wb.remove(default_sheet)  # ⛔ Prevent "no visible sheet" Excel error
+
+    if not df_trades.empty:
+        ws = wb.create_sheet(title="Negócios")
 
     # Simple dump: replace this with structured export logic
     for r_idx, row in enumerate(df_trades.itertuples(index=False), start=2):
