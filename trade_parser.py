@@ -358,96 +358,83 @@ class GenericParser:
 
       return trades
 
-    def _extract_summary_values(self, text: str, file_path: str) -> Dict[str, float]:
-        summary = {}
-        dc_flags = {}
+    def _extract_summary_values(self, text: str) -> Dict[str, float]:
+      summary = {}
 
-        LABEL_POSITIONS = {
-            "Venda disponível": (0, 0),
-            "Compra disponível": (0, 1),
-            "Venda Opções": (0, 2),
-            "Compra Opções": (0, 3),
-            "Valor dos negócios": (0, 4),
-            "IRRF": (1, 0),
-            "IRRF Day Trade (proj.)": (1, 1),
-            "Taxa operacional": (1, 2),
-            "Taxa registro BM&F": (1, 3),
-            "Taxas BM&F (emol+f.gar)": (1, 4),
-            "Outros Custos": (2, 0),
-            "ISS": (2, 1),
-            "Ajuste de posição": (2, 2),
-            "Ajuste day trade": (2, 3),
-            "Total das despesas": (2, 4),
-            "Outros": (3, 0),
-            "IRRF Corretagem": (3, 1),
-            "Total Conta Investimento": (3, 2),
-            "Total Conta Normal": (3, 3),
-            "Total líquido (#)": (3, 4),
-            "Total líquido da nota": (3, 5)
-        }
+      # 1. Tenta extrair o último bloco de resumo
+      matches = list(re.finditer(r"(Resumo dos Negócios.*?)(?=Resumo dos Negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
+      if not matches:
+          matches = list(re.finditer(r"(Resumo de negócios.*?)(?=Resumo de negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
+      if not matches:
+          return {k: 0.0 for k in RESUMO_KEY_MAP}  # retorna zeros se nada encontrado
 
-        try:
-            with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text() or ""
-                    lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+      last_summary_text = matches[-1].group(1)
+      joined = re.sub(r"\s{2,}", " ", " ".join(last_summary_text.splitlines()))
 
-                    label_blocks = [[] for _ in range(4)]
-                    number_blocks = [[] for _ in range(4)]
-                    block_index = -1
+      # 2. Itera sobre as chaves e seus aliases
+      for std_key, variants in RESUMO_KEY_MAP.items():
+        found = False
+        for var in variants:
+            if std_key == "Valor a ser Liquidado":
+                # Captura com valor seguido opcionalmente por 'D'
+                match = re.search(
+                    r"Líquido para\s+\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2}:\d{2})?\s*([\d\.,]+)\s*(D)?",
+                    joined,
+                    flags=re.IGNORECASE
+                )
+                if match:
+                    value = self._clean_numeric(match.group(1))
+                    has_d = match.group(2)
+                    summary[std_key] = -abs(value) if has_d else value
+                    found = True
+                    break
 
-                    for line in lines:
-                        if any(label in line for label in LABEL_POSITIONS):
-                            block_index += 1
-                            label_blocks[block_index] = re.split(r"\s{2,}", line)
-                        elif re.search(r"\d", line) and block_index >= 0:
-                            clean = re.sub(r"[^\d.,\sDC]", "", line)
-                            number_blocks[block_index] += [val.strip() for val in clean.split() if val]
+            if std_key == "IRRF sobre operações":
+              # Get all lines
+              summary_lines = last_summary_text.splitlines()
+              outras_variants = RESUMO_KEY_MAP["Outras"]
+              found_line_index = -1
 
-                    if len(number_blocks) > 3:
-                        combined = " ".join(number_blocks[3])
-                        number_blocks[3] = re.findall(r"[\d.,]+", combined)
+              for i, line in enumerate(summary_lines):
+                  if any(alias.lower() in line.lower() for alias in outras_variants):
+                      found_line_index = i
+                      break
 
-                    for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
-                        try:
-                            value_str = number_blocks[block_idx][pos_idx]
-                            value = abs(self._clean_numeric(value_str))  # Always positive
+              if found_line_index > 0:
+                  previous_line = summary_lines[found_line_index - 1]
+                  matches = re.findall(r"[\d\.,]+", previous_line)
+                  if matches:
+                      summary[std_key] = -abs(self._clean_numeric(matches[-1]))  # ✅ Always negative
+                      found = True
+                      break
 
-                            dc_flag = ""
-                            for line in lines:
-                                if value_str in line:
-                                    after = line.split(value_str, 1)[1]
-                                    if re.search(r"\bD\b", after):
-                                        dc_flag = "D"
-                                    elif re.search(r"\bC\b", after):
-                                        dc_flag = "C"
-                                    break
+            else:
+                # Captura valor seguido opcionalmente por "D" (débito)
+                pattern = fr"{re.escape(var)}\s*[.:\-]*\s*R?\$?\s*([\d\.,]+)\s*(D)?"
+                match = re.search(pattern, joined, flags=re.IGNORECASE)
 
-                            summary[label] = value
-                            dc_flags[label] = dc_flag
+            if match:
+                value = self._clean_numeric(match.group(1))
+                has_d = match.group(2)
 
-                        except (IndexError, ValueError):
-                            summary[label] = 0.0
-                            dc_flags[label] = ""
+                # Aplica sinal negativo apenas se tiver "D"
+                summary[std_key] = -abs(value) if has_d else value
+                found = True
+                break
 
-        except Exception as e:
-            print(f"❌ Failed to extract BM&F summary with D/C flags: {e}")
-            for label in LABEL_POSITIONS:
-                summary[label] = 0.0
-                dc_flags[label] = ""
+        if not found:
+            summary[std_key] = 0.0
 
-        # Remove any D/C columns that are fully empty
-        clean_dc_flags = {k: v for k, v in dc_flags.items() if v}
+      # 3. Corrige 'Total corretagem / Despesas' apenas para ITAU
+      if self.config.name.upper() == "ITAU":
+          summary["Total corretagem / Despesas"] = sum(
+              summary.get(key, 0.0) for key in [
+                  "Corretagem", "ISS", "IRRF sobre operações", "Outras"
+              ]
+          )
 
-        # Rename keys so the Excel export puts blank headers
-        dc_columns = {f"{k}__dc": v for k, v in clean_dc_flags.items()}
+      return summary
 
-        result = {**summary, **dc_columns}
-
-        if "Valor dos negócios" in result:
-            result["Valor das operações"] = result["Valor dos negócios"]
-
-        return result
 
     def _clean_numeric(self, value: str) -> float:
         try:
