@@ -832,69 +832,49 @@ class TradeProcessor:
 
                     block = block.sort_values(by=["Corretora", "Número da Nota"])
 
-                    if tipo_lower == "a vista":
-                        default_columns = [
-                            "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
-                            "Opções - compras", "Opções - vendas", "Operações à termo",
-                            "Valor das oper. c/ títulos públ. (v. nom.)", "Valor das operações",
-                            "Valor líquido das operações",
-                            "Taxa de liquidação", "Taxa de Registro", "Total CBLC", "Taxa de termo/opções",
-                            "Taxa A.N.A.", "Emolumentos", "Total Bovespa / Soma", "Clearing", "Execução",
-                            "Execução casa", "Corretagem", "ISS", "IRRF sobre operações", "Outras",
-                            "Total corretagem / Despesas", "Valor a ser Liquidado"
-                        ]
-                    elif tipo_lower == "bm&f":
-                        default_columns = [
-                            "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções",
-                            "Compra Opções", "Valor dos negócios", "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional",
-                            "Taxa registro BM&F", "Taxas BM&F (emol+f.gar)", "Outros Custos", "ISS",
-                            "Ajuste de posição",
-                            "Ajuste day trade", "Total das despesas", "Outros", "IRRF Corretagem",
-                            "Total Conta Investimento", "Total Conta Normal", "Total líquido (#)",
-                            "Total líquido da nota"
-                        ]
-                    else:
-                        default_columns = block.columns.tolist()
+                    value_cols = [col for col in block.columns if col not in ["Corretora", "Número da Nota", "Tipo"]]
+                    value_cols = [col for col in value_cols if not col.endswith("D/C")]
 
-                    # Filter to keep only non-zero columns (for numeric and D/C variants)
-                    non_zero_cols = []
-                    dc_flags = {}
-                    for col in default_columns:
-                        if col in block.columns:
-                            if block[col].dtype in [float, int] and (block[col] != 0).any():
-                                non_zero_cols.append(col)
-                                dc_col = f"D/C__{col.replace(' ', '_')}"
-                                block[dc_col] = ""
-                                for idx, val in block[col].items():
-                                    original_text = str(val)
-                                    for char in str(df_summary.loc[idx].get(f"D/C__{col.replace(' ', '_')}", "")):
-                                        if char in ["C", "D"]:
-                                            block.at[idx, dc_col] = char
-                                            break
-                                non_zero_cols.append(dc_col)
-                            elif not block[col].dtype in [float, int]:
-                                non_zero_cols.append(col)
+                    # Determine which D/C columns are needed (at least one non-zero value)
+                    d_c_flags = {}
+                    for col in value_cols:
+                        d_c_col = f"{col} D/C"
+                        if col in block.columns and d_c_col in block.columns:
+                            if block[col].abs().sum() > 0:
+                                d_c_flags[col] = True
+                            else:
+                                d_c_flags[col] = False
 
-                    block = block[[col for col in non_zero_cols if col in block.columns]]
+                    # Final columns to export
+                    base_cols = ["Corretora", "Número da Nota"]
+                    export_cols = []
 
+                    for col in value_cols:
+                        export_cols.append(col)
+                        if d_c_flags.get(col, False):
+                            export_cols.append(f"{col} D/C")
+
+                    # Rename D/C headers to "D/C"
+                    headers = []
+                    for col in export_cols:
+                        headers.append("D/C" if col.endswith("D/C") else col)
+
+                    # Write block title
                     ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
                     row_idx += 2
 
-                    # Headers
-                    for col_idx, col_name in enumerate(block.columns, start=1):
-                        display_name = "D/C" if col_name.startswith("D/C__") else col_name
-                        ws_resumo.cell(row=row_idx, column=col_idx, value=display_name).font = Font(bold=True)
+                    # Write header row
+                    for col_idx, header in enumerate(headers, start=1):
+                        ws_resumo.cell(row=row_idx, column=col_idx, value=header).font = Font(bold=True)
                     row_idx += 1
 
-                    # Data rows
+                    # Write data rows
                     for _, row in block.iterrows():
-                        for col_idx, col_name in enumerate(block.columns, start=1):
-                            ws_resumo.cell(row=row_idx, column=col_idx, value=row[col_name])
+                        for col_idx, col_name in enumerate(export_cols, start=1):
+                            ws_resumo.cell(row=row_idx, column=col_idx, value=row.get(col_name, ""))
                         row_idx += 1
 
-                    row_idx += 1
-
-            autofit_columns(ws_resumo)
+                    row_idx += 1  # spacing between blocks
 
             autofit_columns(ws_resumo)
 
