@@ -832,62 +832,69 @@ class TradeProcessor:
 
                     block = block.sort_values(by=["Corretora", "Número da Nota"])
 
-                    # === Base columns (without D/C)
                     if tipo_lower == "a vista":
-                        base_cols = [
+                        default_columns = [
                             "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
                             "Opções - compras", "Opções - vendas", "Operações à termo",
                             "Valor das oper. c/ títulos públ. (v. nom.)", "Valor das operações",
-                            "Valor líquido das operações", "Taxa de liquidação", "Taxa de Registro",
-                            "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.", "Emolumentos",
-                            "Total Bovespa / Soma", "Clearing", "Execução", "Execução casa",
-                            "Corretagem", "ISS", "IRRF sobre operações", "Outras",
+                            "Valor líquido das operações",
+                            "Taxa de liquidação", "Taxa de Registro", "Total CBLC", "Taxa de termo/opções",
+                            "Taxa A.N.A.", "Emolumentos", "Total Bovespa / Soma", "Clearing", "Execução",
+                            "Execução casa", "Corretagem", "ISS", "IRRF sobre operações", "Outras",
                             "Total corretagem / Despesas", "Valor a ser Liquidado"
                         ]
                     elif tipo_lower == "bm&f":
-                        base_cols = [
+                        default_columns = [
                             "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções",
-                            "Compra Opções", "Valor dos negócios", "IRRF", "IRRF Day Trade (proj.)",
-                            "Taxa operacional", "Taxa registro BM&F", "Taxas BM&F (emol+f.gar)", "Outros Custos",
-                            "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas",
-                            "Outros", "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal",
-                            "Total líquido (#)", "Total líquido da nota"
+                            "Compra Opções", "Valor dos negócios", "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional",
+                            "Taxa registro BM&F", "Taxas BM&F (emol+f.gar)", "Outros Custos", "ISS",
+                            "Ajuste de posição",
+                            "Ajuste day trade", "Total das despesas", "Outros", "IRRF Corretagem",
+                            "Total Conta Investimento", "Total Conta Normal", "Total líquido (#)",
+                            "Total líquido da nota"
                         ]
                     else:
-                        base_cols = block.columns.tolist()
+                        default_columns = block.columns.tolist()
 
-                    # === Interleave D/C only when corresponding value column has non-zero values
-                    def build_interleaved_columns(df_block: pd.DataFrame, base_cols: List[str]) -> List[str]:
-                        columns = []
-                        for col in base_cols:
-                            if col in df_block.columns:
-                                columns.append(col)
-                                dc_col = f"D/C {col}"
-                                if dc_col in df_block.columns:
-                                    # Check if ANY D/C value is non-null
-                                    if df_block[dc_col].replace('', pd.NA).dropna().any():
-                                        columns.append("D/C")  # use generic name
-                                        df_block.rename(columns={dc_col: "D/C"}, inplace=True)
-                                    else:
-                                        df_block.drop(columns=[dc_col], inplace=True)
-                        return columns
+                    # Filter to keep only non-zero columns (for numeric and D/C variants)
+                    non_zero_cols = []
+                    dc_flags = {}
+                    for col in default_columns:
+                        if col in block.columns:
+                            if block[col].dtype in [float, int] and (block[col] != 0).any():
+                                non_zero_cols.append(col)
+                                dc_col = f"D/C__{col.replace(' ', '_')}"
+                                block[dc_col] = ""
+                                for idx, val in block[col].items():
+                                    original_text = str(val)
+                                    for char in str(df_summary.loc[idx].get(f"D/C__{col.replace(' ', '_')}", "")):
+                                        if char in ["C", "D"]:
+                                            block.at[idx, dc_col] = char
+                                            break
+                                non_zero_cols.append(dc_col)
+                            elif not block[col].dtype in [float, int]:
+                                non_zero_cols.append(col)
 
-                    block_columns = build_interleaved_columns(block, base_cols)
-                    block = block[[col for col in block_columns if col in block.columns]]
+                    block = block[[col for col in non_zero_cols if col in block.columns]]
 
                     ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
                     row_idx += 2
 
+                    # Headers
                     for col_idx, col_name in enumerate(block.columns, start=1):
-                        ws_resumo.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
+                        display_name = "D/C" if col_name.startswith("D/C__") else col_name
+                        ws_resumo.cell(row=row_idx, column=col_idx, value=display_name).font = Font(bold=True)
                     row_idx += 1
 
+                    # Data rows
                     for _, row in block.iterrows():
                         for col_idx, col_name in enumerate(block.columns, start=1):
                             ws_resumo.cell(row=row_idx, column=col_idx, value=row[col_name])
                         row_idx += 1
 
                     row_idx += 1
+
+            autofit_columns(ws_resumo)
 
             autofit_columns(ws_resumo)
 
