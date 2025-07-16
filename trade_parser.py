@@ -358,80 +358,96 @@ class GenericParser:
 
       return trades
 
-    def _extract_summary_values(self, text: str) -> Dict[str, float]:
+    def _extract_summary_values(self, text: str, file_path: str) -> Dict[str, float]:
         summary = {}
+        dc_flags = {}
 
-        matches = list(
-            re.finditer(r"(Resumo dos Negócios.*?)(?=Resumo dos Negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
-        if not matches:
-            matches = list(
-                re.finditer(r"(Resumo de negócios.*?)(?=Resumo de negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
-        if not matches:
-            return {k: 0.0 for k in RESUMO_KEY_MAP}  # fallback
+        LABEL_POSITIONS = {
+            "Venda disponível": (0, 0),
+            "Compra disponível": (0, 1),
+            "Venda Opções": (0, 2),
+            "Compra Opções": (0, 3),
+            "Valor dos negócios": (0, 4),
+            "IRRF": (1, 0),
+            "IRRF Day Trade (proj.)": (1, 1),
+            "Taxa operacional": (1, 2),
+            "Taxa registro BM&F": (1, 3),
+            "Taxas BM&F (emol+f.gar)": (1, 4),
+            "Outros Custos": (2, 0),
+            "ISS": (2, 1),
+            "Ajuste de posição": (2, 2),
+            "Ajuste day trade": (2, 3),
+            "Total das despesas": (2, 4),
+            "Outros": (3, 0),
+            "IRRF Corretagem": (3, 1),
+            "Total Conta Investimento": (3, 2),
+            "Total Conta Normal": (3, 3),
+            "Total líquido (#)": (3, 4),
+            "Total líquido da nota": (3, 5)
+        }
 
-        last_summary_text = matches[-1].group(1)
-        joined = re.sub(r"\s{2,}", " ", " ".join(last_summary_text.splitlines()))
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text() or ""
+                    lines = [line.strip() for line in page_text.splitlines() if line.strip()]
 
-        for std_key, variants in RESUMO_KEY_MAP.items():
-            found = False
-            for var in variants:
-                if std_key == "Valor a ser Liquidado":
-                    match = re.search(
-                        r"Líquido para\s+\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2}:\d{2})?\s*([\d\.,]+)\s*(D|C)?",
-                        joined,
-                        flags=re.IGNORECASE
-                    )
-                    if match:
-                        value = self._clean_numeric(match.group(1))
-                        flag = match.group(2) or ""
-                        summary[std_key] = value
-                        summary[f"D/C {std_key}"] = flag
-                        found = True
-                        break
+                    label_blocks = [[] for _ in range(4)]
+                    number_blocks = [[] for _ in range(4)]
+                    block_index = -1
 
-                elif std_key == "IRRF sobre operações":
-                    summary_lines = last_summary_text.splitlines()
-                    outras_variants = RESUMO_KEY_MAP["Outras"]
-                    found_line_index = -1
+                    for line in lines:
+                        if any(label in line for label in LABEL_POSITIONS):
+                            block_index += 1
+                            label_blocks[block_index] = re.split(r"\s{2,}", line)
+                        elif re.search(r"\d", line) and block_index >= 0:
+                            clean = re.sub(r"[^\d.,\sDC]", "", line)
+                            number_blocks[block_index] += [val.strip() for val in clean.split() if val]
 
-                    for i, line in enumerate(summary_lines):
-                        if any(alias.lower() in line.lower() for alias in outras_variants):
-                            found_line_index = i
-                            break
+                    if len(number_blocks) > 3:
+                        combined = " ".join(number_blocks[3])
+                        number_blocks[3] = re.findall(r"[\d.,]+", combined)
 
-                    if found_line_index > 0:
-                        previous_line = summary_lines[found_line_index - 1]
-                        matches = re.findall(r"[\d\.,]+", previous_line)
-                        if matches:
-                            summary[std_key] = self._clean_numeric(matches[-1])
-                            summary[f"D/C {std_key}"] = "D"  # legacy logic assumed D here
-                            found = True
-                            break
+                    for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
+                        try:
+                            value_str = number_blocks[block_idx][pos_idx]
+                            value = abs(self._clean_numeric(value_str))  # Always positive
 
-                else:
-                    pattern = fr"{re.escape(var)}\s*[.:\-]*\s*R?\$?\s*([\d\.,]+)\s*(D|C)?"
-                    match = re.search(pattern, joined, flags=re.IGNORECASE)
+                            dc_flag = ""
+                            for line in lines:
+                                if value_str in line:
+                                    after = line.split(value_str, 1)[1]
+                                    if re.search(r"\bD\b", after):
+                                        dc_flag = "D"
+                                    elif re.search(r"\bC\b", after):
+                                        dc_flag = "C"
+                                    break
 
-                    if match:
-                        value = self._clean_numeric(match.group(1))
-                        flag = match.group(2) or ""
-                        summary[std_key] = value
-                        summary[f"D/C {std_key}"] = flag
-                        found = True
-                        break
+                            summary[label] = value
+                            dc_flags[label] = dc_flag
 
-            if not found:
-                summary[std_key] = 0.0
-                summary[f"D/C {std_key}"] = ""
+                        except (IndexError, ValueError):
+                            summary[label] = 0.0
+                            dc_flags[label] = ""
 
-        if self.config.name.upper() == "ITAU":
-            summary["Total corretagem / Despesas"] = sum(
-                summary.get(key, 0.0) for key in [
-                    "Corretagem", "ISS", "IRRF sobre operações", "Outras"
-                ]
-            )
+        except Exception as e:
+            print(f"❌ Failed to extract BM&F summary with D/C flags: {e}")
+            for label in LABEL_POSITIONS:
+                summary[label] = 0.0
+                dc_flags[label] = ""
 
-        return summary
+        # Remove any D/C columns that are fully empty
+        clean_dc_flags = {k: v for k, v in dc_flags.items() if v}
+
+        # Rename keys so the Excel export puts blank headers
+        dc_columns = {f"{k}__dc": v for k, v in clean_dc_flags.items()}
+
+        result = {**summary, **dc_columns}
+
+        if "Valor dos negócios" in result:
+            result["Valor das operações"] = result["Valor dos negócios"]
+
+        return result
 
     def _clean_numeric(self, value: str) -> float:
         try:
@@ -488,93 +504,90 @@ class BMFParser(GenericParser):
         return trades
 
     def _extract_summary_values(self, text: str, file_path: str) -> Dict[str, float]:
-        summary = {}
+      summary = {}
 
-        LABEL_POSITIONS = {
-            "Venda disponível": (0, 0),
-            "Compra disponível": (0, 1),
-            "Venda Opções": (0, 2),
-            "Compra Opções": (0, 3),
-            "Valor dos negócios": (0, 4),
-            "IRRF": (1, 0),
-            "IRRF Day Trade (proj.)": (1, 1),
-            "Taxa operacional": (1, 2),
-            "Taxa registro BM&F": (1, 3),
-            "Taxas BM&F (emol+f.gar)": (1, 4),
-            "Outros Custos": (2, 0),
-            "ISS": (2, 1),
-            "Ajuste de posição": (2, 2),
-            "Ajuste day trade": (2, 3),
-            "Total das despesas": (2, 4),
-            "Outros": (3, 0),
-            "IRRF Corretagem": (3, 1),
-            "Total Conta Investimento": (3, 2),
-            "Total Conta Normal": (3, 3),
-            "Total líquido (#)": (3, 4),
-            "Total líquido da nota": (3, 5)
-        }
+      LABEL_POSITIONS = {
+          "Venda disponível": (0, 0),
+          "Compra disponível": (0, 1),
+          "Venda Opções": (0, 2),
+          "Compra Opções": (0, 3),
+          "Valor dos negócios": (0, 4),
+          "IRRF": (1, 0),
+          "IRRF Day Trade (proj.)": (1, 1),
+          "Taxa operacional": (1, 2),
+          "Taxa registro BM&F": (1, 3),
+          "Taxas BM&F (emol+f.gar)": (1, 4),
+          "Outros Custos": (2, 0),
+          "ISS": (2, 1),
+          "Ajuste de posição": (2, 2),
+          "Ajuste day trade": (2, 3),
+          "Total das despesas": (2, 4),
+          "Outros": (3, 0),
+          "IRRF Corretagem": (3, 1),
+          "Total Conta Investimento": (3, 2),
+          "Total Conta Normal": (3, 3),
+          "Total líquido (#)": (3, 4),
+          "Total líquido da nota": (3, 5)
+      }
 
-        for key in LABEL_POSITIONS:
-            summary[key] = 0.0
-            summary[f"D/C {key}"] = ""
+      # Init with 0.0
+      for key in LABEL_POSITIONS:
+          summary[key] = 0.0
 
-        try:
-            with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text() or ""
-                    lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+      try:
+          with pdfplumber.open(file_path) as pdf:
+              for page in pdf.pages:
+                  page_text = page.extract_text() or ""
+                  lines = [line.strip() for line in page_text.splitlines() if line.strip()]
 
-                    label_blocks = [[] for _ in range(4)]
-                    number_blocks = [[] for _ in range(4)]
-                    block_index = -1
+                  label_blocks = [[] for _ in range(4)]
+                  number_blocks = [[] for _ in range(4)]
+                  block_index = -1
 
-                    for line in lines:
-                        if any(label in line for label in LABEL_POSITIONS):
-                            block_index += 1
-                            label_blocks[block_index] = re.split(r"\s{2,}", line)
-                        elif re.search(r"\d", line) and block_index >= 0:
-                            clean = re.sub(r"[^\d.,\sDC]", "", line)
-                            number_blocks[block_index] += [val.strip() for val in clean.split() if
-                                                           re.search(r"[\d,]", val)]
+                  for line in lines:
+                      if any(label in line for label in LABEL_POSITIONS):
+                          block_index += 1
+                          label_blocks[block_index] = re.split(r"\s{2,}", line)
+                      elif re.search(r"\d", line) and block_index >= 0:
+                          clean = re.sub(r"[^\d.,\sD]", "", line)
+                          number_blocks[block_index] += [val.strip() for val in clean.split() if re.search(r"[\d,]", val)]
 
-                    # Clean up last block to ensure proper parsing
-                    if len(number_blocks) > 3:
-                        block_3_lines = number_blocks[3]
-                        combined = " ".join(block_3_lines)
-                        number_blocks[3] = re.findall(r"[\d.,]+", combined)
+                  # Special cleaning for the last line block (block 3)
+                  if len(number_blocks) > 3:
+                      block_3_lines = number_blocks[3]
+                      combined = " ".join(block_3_lines)
+                      number_blocks[3] = re.findall(r"[\d.,]+", combined)
 
-                    for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
-                        try:
-                            value_str = number_blocks[block_idx][pos_idx]
-                            value = self._clean_numeric(value_str)
+                  # Extract using positional logic
+                  for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
+                      try:
+                          value_str = number_blocks[block_idx][pos_idx]
+                          value = self._clean_numeric(value_str)
 
-                            # Check D or C flag
-                            dc_flag = ""
-                            for line in lines:
-                                if value_str in line:
-                                    after = line.split(value_str, 1)[1]
-                                    dc_match = re.search(r"\b([DC])\b", after)
-                                    if dc_match:
-                                        dc_flag = dc_match.group(1)
-                                    break
+                          # Check if 'D' follows this number on the same line
+                          debit_flag = False
+                          for line in lines:
+                              if value_str in line:
+                                  # Look for 'D' after the number
+                                  after = line.split(value_str, 1)[1]
+                                  if re.search(r'\bD\b', after):
+                                      debit_flag = True
+                                  break
 
-                            summary[label] = value
-                            summary[f"D/C {label}"] = dc_flag
-                        except (IndexError, ValueError):
-                            summary[label] = 0.0
-                            summary[f"D/C {label}"] = ""
+                          summary[label] = -abs(value) if debit_flag else value
+                      except (IndexError, ValueError):
+                          summary[label] = 0.0
 
-        except Exception as e:
-            print(f"❌ Failed to extract BM&F summary with positional logic: {e}")
-            for label in LABEL_POSITIONS:
-                summary[label] = 0.0
-                summary[f"D/C {label}"] = ""
+      except Exception as e:
+          print(f"❌ Failed to extract BM&F summary with positional logic: {e}")
+          for label in LABEL_POSITIONS:
+              summary[label] = 0.0
 
-        if "Valor dos negócios" in summary:
-            summary["Valor das operações"] = summary["Valor dos negócios"]
-            summary["D/C Valor das operações"] = summary.get("D/C Valor dos negócios", "")
+      # Map "Valor dos negócios" to "Valor das operações" to support consistency check
+      if "Valor dos negócios" in summary:
+          summary["Valor das operações"] = summary["Valor dos negócios"]
 
-        return summary
+      return summary
 
 
 # === PROCESS MULTIPLE FILES ===
@@ -821,7 +834,7 @@ class TradeProcessor:
             row_idx = 1
 
             if not df_summary.empty:
-                tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist()
+                tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist()  # Get unique types from summary data
 
                 for tipo_lower in tipos_disponiveis:
                     tipo_lower = tipo_lower.lower().strip()
@@ -832,49 +845,48 @@ class TradeProcessor:
 
                     block = block.sort_values(by=["Corretora", "Número da Nota"])
 
-                    value_cols = [col for col in block.columns if col not in ["Corretora", "Número da Nota", "Tipo"]]
-                    value_cols = [col for col in value_cols if not col.endswith("D/C")]
+                    if tipo_lower == "a vista":
+                        block_columns = [
+                            "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
+                            "Opções - compras", "Opções - vendas", "Operações à termo",
+                            "Valor das oper. c/ títulos públ. (v. nom.)",
+                            "Valor das operações", "Valor líquido das operações", "Taxa de liquidação",
+                            "Taxa de Registro",
+                            "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.", "Emolumentos", "Total Bovespa / Soma",
+                            "Clearing", "Execução", "Execução casa", "Corretagem", "ISS", "IRRF sobre operações",
+                            "Outras",
+                            "Total corretagem / Despesas", "Valor a ser Liquidado"
+                        ]
+                    elif tipo_lower == "bm&f":
+                        block_columns = [
+                            "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções",
+                            "Compra Opções", "Valor dos negócios",
+                            "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional", "Taxa registro BM&F",
+                            "Taxas BM&F (emol+f.gar)",
+                            "Outros Custos", "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas",
+                            "Outros",
+                            "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal", "Total líquido (#)",
+                            "Total líquido da nota"
+                        ]
 
-                    # Determine which D/C columns are needed (at least one non-zero value)
-                    d_c_flags = {}
-                    for col in value_cols:
-                        d_c_col = f"{col} D/C"
-                        if col in block.columns and d_c_col in block.columns:
-                            if block[col].abs().sum() > 0:
-                                d_c_flags[col] = True
-                            else:
-                                d_c_flags[col] = False
+                    else:
+                        block_columns = block.columns.tolist()
 
-                    # Final columns to export
-                    base_cols = ["Corretora", "Número da Nota"]
-                    export_cols = []
+                    block = block[[col for col in block_columns if col in block.columns]]
 
-                    for col in value_cols:
-                        export_cols.append(col)
-                        if d_c_flags.get(col, False):
-                            export_cols.append(f"{col} D/C")
-
-                    # Rename D/C headers to "D/C"
-                    headers = []
-                    for col in export_cols:
-                        headers.append("D/C" if col.endswith("D/C") else col)
-
-                    # Write block title
                     ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
                     row_idx += 2
 
-                    # Write header row
-                    for col_idx, header in enumerate(headers, start=1):
-                        ws_resumo.cell(row=row_idx, column=col_idx, value=header).font = Font(bold=True)
+                    for col_idx, col_name in enumerate(block.columns, start=1):
+                        ws_resumo.cell(row=row_idx, column=col_idx, value=col_name).font = Font(bold=True)
                     row_idx += 1
 
-                    # Write data rows
                     for _, row in block.iterrows():
-                        for col_idx, col_name in enumerate(export_cols, start=1):
-                            ws_resumo.cell(row=row_idx, column=col_idx, value=row.get(col_name, ""))
+                        for col_idx, col_name in enumerate(block.columns, start=1):
+                            ws_resumo.cell(row=row_idx, column=col_idx, value=row[col_name])
                         row_idx += 1
 
-                    row_idx += 1  # spacing between blocks
+                    row_idx += 1
 
             autofit_columns(ws_resumo)
 
