@@ -7,7 +7,7 @@ body {
 
 .top-bar {
   background-color: #7da2ce;
-  padding: 20px 40px;
+  padding: 15px 40px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -149,7 +149,8 @@ body {
 
 .nota-feliz {
   height: 42px;
-  background-color: #7da2ce; /* same as .top-bar */
   padding: 6px;
   border-radius: 8px;
+  background-color: transparent;
 }
+
