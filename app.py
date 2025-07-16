@@ -195,7 +195,15 @@ def anonymize_pdf():
       <input type=submit value="Anonimizar e Baixar PDF">
     </form>
     '''
-
+@app.route('/notas')
+def notas_disponiveis():
+    brokers = [
+        {"nome": "BTG Pactual", "avista": True, "bmf": True},
+        {"nome": "XP Investimentos", "avista": True, "bmf": False},
+        {"nome": "Itaú Corretora", "avista": True, "bmf": False},
+        {"nome": "Ágora Investimentos", "avista": True, "bmf": False},
+    ]
+    return render_template("notas.html", brokers=brokers)
 
 if __name__ == '__main__':
     with app.app_context():

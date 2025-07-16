@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Notas Disponíveis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .broker-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 30px;
+    }
+    .broker-table th,
+    .broker-table td {
+      padding: 12px 20px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+    .broker-table th {
+      background-color: #f5f5f5;
+    }
+    .broker-table tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    .broker-table td:first-child {
+      text-align: left;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="title-area">
+      <h1>Notas de Corretagem Suportadas</h1>
+      <p class="subtitle">Veja abaixo quais corretoras e tipos de nota são suportados pela plataforma<
