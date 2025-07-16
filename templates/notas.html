@@ -32,4 +32,38 @@
   <header class="top-bar">
     <div class="title-area">
       <h1>Notas de Corretagem Suportadas</h1>
-      <p class="subtitle">Veja abaixo quais corretoras e tipos de nota são suportados pela plataforma<
+      <p class="subtitle">Veja abaixo quais corretoras e tipos de nota são suportados pela plataforma</p>
+    </div>
+    <nav class="menu">
+      <a href="/">Início</a>
+      <a href="/anonymize">Anonimização</a>
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('auth.logout') }}">Logout</a>
+      {% else %}
+        <a href="{{ url_for('auth.login') }}">Login</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main class="container">
+    <table class="broker-table">
+      <thead>
+        <tr>
+          <th>Corretora</th>
+          <th>A VISTA</th>
+          <th>BM&F</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for broker in brokers %}
+        <tr>
+          <td>{{ broker.nome }}</td>
+          <td>{{ "✅" if broker.avista else "—" }}</td>
+          <td>{{ "✅" if broker.bmf else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
