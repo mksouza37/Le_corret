@@ -4,13 +4,28 @@
   <meta charset="UTF-8">
   <title>NO-DIG - Extrator de Notas</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .nota-feliz {
+      height: 64px;
+      vertical-align: middle;
+      margin-left: 12px;
+    }
+    .subtitle-with-icon {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
 </head>
 <body>
 
   <header class="top-bar">
     <div class="title-area">
       <h1>NO-DIG - Transfira suas notas de Corretagem do PDF para o Excel.</h1>
-      <p class="subtitle">Nunca mais digite uma nota!</p>
+      <p class="subtitle-with-icon">
+        Nunca mais digite uma nota de corretagem!
+        <img src="{{ url_for('static', filename='img/nota-feliz.png') }}" alt="Nota Feliz" class="nota-feliz">
+      </p>
     </div>
     <nav class="menu">
       <a href="/anonymize">Anonimização</a>
