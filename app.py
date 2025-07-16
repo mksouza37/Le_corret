@@ -14,7 +14,7 @@ from datetime import datetime
 import threading
 import traceback
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
 # Upload folder setup
