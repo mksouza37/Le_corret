@@ -821,7 +821,7 @@ class TradeProcessor:
             row_idx = 1
 
             if not df_summary.empty:
-                tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist()  # Get unique types from summary data
+                tipos_disponiveis = df_summary["Tipo"].dropna().unique().tolist()
 
                 for tipo_lower in tipos_disponiveis:
                     tipo_lower = tipo_lower.lower().strip()
@@ -832,37 +832,47 @@ class TradeProcessor:
 
                     block = block.sort_values(by=["Corretora", "Número da Nota"])
 
+                    # === Base columns (without D/C)
                     if tipo_lower == "a vista":
-                        base_columns = [
+                        base_cols = [
                             "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
                             "Opções - compras", "Opções - vendas", "Operações à termo",
-                            "Valor das oper. c/ títulos públ. (v. nom.)",
-                            "Valor das operações", "Valor líquido das operações", "Taxa de liquidação",
-                            "Taxa de Registro", "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.",
-                            "Emolumentos", "Total Bovespa / Soma", "Clearing", "Execução", "Execução casa",
+                            "Valor das oper. c/ títulos públ. (v. nom.)", "Valor das operações",
+                            "Valor líquido das operações", "Taxa de liquidação", "Taxa de Registro",
+                            "Total CBLC", "Taxa de termo/opções", "Taxa A.N.A.", "Emolumentos",
+                            "Total Bovespa / Soma", "Clearing", "Execução", "Execução casa",
                             "Corretagem", "ISS", "IRRF sobre operações", "Outras",
                             "Total corretagem / Despesas", "Valor a ser Liquidado"
                         ]
                     elif tipo_lower == "bm&f":
-                        base_columns = [
+                        base_cols = [
                             "Corretora", "Número da Nota", "Venda disponível", "Compra disponível", "Venda Opções",
                             "Compra Opções", "Valor dos negócios", "IRRF", "IRRF Day Trade (proj.)",
                             "Taxa operacional", "Taxa registro BM&F", "Taxas BM&F (emol+f.gar)", "Outros Custos",
-                            "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas", "Outros",
-                            "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal",
+                            "ISS", "Ajuste de posição", "Ajuste day trade", "Total das despesas",
+                            "Outros", "IRRF Corretagem", "Total Conta Investimento", "Total Conta Normal",
                             "Total líquido (#)", "Total líquido da nota"
                         ]
                     else:
-                        base_columns = block.columns.tolist()
+                        base_cols = block.columns.tolist()
 
-                    # Add dynamic D/C columns just after each key
-                    block_columns = []
-                    for col in base_columns:
-                        block_columns.append(col)
-                        dc_col = f"D/C {col}"
-                        if dc_col in block.columns:
-                            block_columns.append(dc_col)
+                    # === Interleave D/C only when corresponding value column has non-zero values
+                    def build_interleaved_columns(df_block: pd.DataFrame, base_cols: List[str]) -> List[str]:
+                        columns = []
+                        for col in base_cols:
+                            if col in df_block.columns:
+                                columns.append(col)
+                                dc_col = f"D/C {col}"
+                                if dc_col in df_block.columns:
+                                    # Check if ANY D/C value is non-null
+                                    if df_block[dc_col].replace('', pd.NA).dropna().any():
+                                        columns.append("D/C")  # use generic name
+                                        df_block.rename(columns={dc_col: "D/C"}, inplace=True)
+                                    else:
+                                        df_block.drop(columns=[dc_col], inplace=True)
+                        return columns
 
+                    block_columns = build_interleaved_columns(block, base_cols)
                     block = block[[col for col in block_columns if col in block.columns]]
 
                     ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
