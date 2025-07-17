@@ -9,14 +9,17 @@
 <body>
 
   <header class="top-bar">
-    <div class="title-area">
+   <div class="title-area">
       <h1>NO-DIG - Transfira suas notas de Corretagem do PDF para o Excel.</h1>
-
-      <img src="{{ url_for('static', filename='img/punho-vitoria.png') }}"
-     alt="Punho de Vitória"
-     style="height: 60px; width: 40px; vertical-align: middle; margin-left: 10px;">
-
+      <p class="subtitle-with-icon"
+         style="font-family: 'Dancing Script', cursive; font-size: 1.6rem; color: black; margin-top: 6px;">
+        Nunca mais digite uma nota de corretagem!
+        <img src="{{ url_for('static', filename='img/punho.png') }}"
+             alt="Punho de Vitória"
+             style="height: 60px; width: 40px; vertical-align: middle; margin-left: 10px;">
+      </p>
     </div>
+
     <nav class="menu">
       <a href="/anonymize">Anonimização</a>
       <a href="/notas">Notas disponíveis</a>
