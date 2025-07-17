@@ -72,13 +72,13 @@ body {
 
 .button-group {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  flex-wrap: wrap;
   width: 100%;
   max-width: 420px;
 }
 
-/* ✅ Unified button style — 2/3 width and same height */
+/* ✅ Button style (vertical layout + same height) */
 .custom-button {
   background-color: #000;
   color: white;
@@ -87,9 +87,8 @@ body {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  flex: 1 1 133px;
-  max-width: 133px;
-  height: 44px;
+  width: 200px;
+  height: 48px; /* force consistent height */
   text-align: center;
   text-transform: uppercase;
   transition: background-color 0.3s ease;
@@ -106,14 +105,6 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-}
-
-/* ✅ Responsive stack on small screens */
-@media (max-width: 500px) {
-  .custom-button {
-    flex: 1 1 100%;
-    max-width: 100%;
-  }
 }
 
 .message-section {
