@@ -954,3 +954,5 @@ class TradeProcessor:
                     autofit_columns(ws_consistencia)
 
         return df_trades
+
+
