@@ -28,6 +28,16 @@ body {
   margin-top: 4px;
 }
 
+.subtitle-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'Dancing Script', cursive;
+  font-size: 1.6rem;
+  color: black;
+  margin-top: 6px;
+}
+
 .menu {
   display: flex;
   gap: 20px;
@@ -56,6 +66,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 14px;
 }
 
 .form-title {
@@ -63,28 +74,42 @@ body {
   margin-bottom: 10px;
 }
 
-.button-group {
-  display: flex;
-  gap: 12px;
-}
-
-.custom-button {
-  background-color: #000;
+/* Carregar button */
+.button-load {
+  background-color: #000000;
   color: white;
   padding: 12px 24px;
   font-size: 1rem;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  width: 200px;
+  width: 220px;
   text-align: center;
   transition: background-color 0.3s ease;
-  display: inline-block;
   text-transform: uppercase;
 }
 
-.custom-button:hover {
-  background-color: #333;
+.button-load:hover {
+  background-color: #333333;
+}
+
+/* Processar button */
+.button-process {
+  background-color: #143d69; /* dark blue */
+  color: white;
+  padding: 12px 24px;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 220px;
+  text-align: center;
+  transition: background-color 0.3s ease;
+  text-transform: uppercase;
+}
+
+.button-process:hover {
+  background-color: #1f518a;
 }
 
 .message-section {
@@ -141,11 +166,6 @@ body {
   font-size: 0.95rem;
   line-height: 1.4;
 }
-.subtitle-with-icon {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 
 .nota-feliz {
   height: 42px;
@@ -153,4 +173,3 @@ body {
   border-radius: 8px;
   background-color: #7da2ce;
 }
-

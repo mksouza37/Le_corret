@@ -36,11 +36,13 @@
       <form method="post" enctype="multipart/form-data" id="upload-form">
         <div class="form-row">
           <label for="files" class="form-title">Carregar e Processar os PDFs das notas.</label>
-          <div class="button-group">
-            <label for="files" class="custom-button">Carregar</label>
-            <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
-            <button type="submit" class="custom-button">Processar</button>
-          </div>
+
+          <!-- Carregar button -->
+          <label for="files" class="button-load">Carregar</label>
+          <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
+
+          <!-- Processar button -->
+          <button type="submit" class="button-process">Processar</button>
         </div>
       </form>
     </section>
