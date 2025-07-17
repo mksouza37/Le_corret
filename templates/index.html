@@ -9,15 +9,14 @@
 <body>
 
   <header class="top-bar">
-    <div class="title-area">
+   <div class="title-area">
       <h1>NO-DIG - Transfira suas notas de Corretagem do PDF para o Excel.</h1>
-      <p class="subtitle-with-icon">
-        <span style="font-family: 'Dancing Script', cursive; font-size: 1.6rem; color: black;">
-          Nunca mais digite uma nota de corretagem!
-        </span>
+      <p class="subtitle-with-icon"
+         style="font-family: 'Dancing Script', cursive; font-size: 1.6rem; color: black; margin-top: 6px;">
+        Nunca mais digite uma nota de corretagem!
         <img src="{{ url_for('static', filename='img/punho.png') }}"
              alt="Punho de Vitória"
-             class="punho-icon">
+             style="height: 60px; width: 40px; vertical-align: middle; margin-left: 10px;">
       </p>
     </div>
 
@@ -38,7 +37,7 @@
         <div class="form-row">
           <label for="files" class="form-title">Carregar e Processar os PDFs das notas.</label>
           <div class="button-group">
-            <label for="files" class="custom-button file-label-button">Carregar</label>
+            <label for="files" class="custom-button">Carregar</label>
             <input type="file" name="files" id="files" multiple accept=".pdf" required hidden>
             <button type="submit" class="custom-button">Processar</button>
           </div>
@@ -48,6 +47,7 @@
 
     <section class="message-section">
       <h3>Mensagens</h3>
+
       <div id="message-box">
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
