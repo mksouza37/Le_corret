@@ -11,6 +11,7 @@ from PyPDF2 import PdfReader, PdfWriter
 import shutil
 
 # === Clean up any old output Excel file ===
+
 if os.path.exists("output_all_invoices.xlsx"):
     os.remove("output_all_invoices.xlsx")
 
@@ -21,7 +22,6 @@ if os.path.exists(temp_dir):
 
 # === Clear global DataFrames if running interactively (e.g. Colab) ===
 import gc
-
 try:
     del df_trades, df_summary, df_consistency
 except:
@@ -29,7 +29,8 @@ except:
 gc.collect()
 
 # === KEY NORMALIZATION MAP ===
-RESUMO_KEY_MAP = {
+# === RESUMO MAPPING FOR A VISTA ===
+RESUMO_KEY_MAP_AVISTA = {
     "Debêntures": ["Debêntures"],
     "Vendas à Vista": ["Vendas à vista", "Venda à Vista", "Vendas à Vista"],
     "Compras à Vista": ["Compras à vista", "Compra à Vista"],
@@ -61,33 +62,72 @@ RESUMO_KEY_MAP = {
     "Valor a ser Liquidado": ["Valor a ser Liquidado", "Líquido para"]
 }
 
-import unicodedata
+# === RESUMO MAPPING FOR BM&F ===
+RESUMO_KEY_MAP_BMF = {
+    "Venda disponível": ["Venda disponível"],
+    "Compra disponível": ["Compra disponível"],
+    "Venda Opções": ["Venda Opções"],
+    "Compra Opções": ["Compra Opções"],
+    "Valor dos negócios": ["Valor dos negócios", "Vlr de Operação/Ajuste"],
+    "IRRF": ["IRRF", "IRRF operacional"],
+    "IRRF Day Trade (proj.)": ["IRRF Day Trade (proj.)"],
+    "Taxa operacional": ["Taxa operacional"],
+    "Taxa registro BM&F": ["Taxa registro BM&F"],
+    "Taxas BM&F (emol+f.gar)": ["Taxas BM&F (emol+f.gar)"],
+    "Outros Custos": ["Outros Custos"],
+    "ISS": ["ISS", "Impostos"],
+    "Ajuste de posição": ["Ajuste de posição"],
+    "Ajuste day trade": ["Ajuste day trade"],
+    "Total das despesas": ["Total das despesas", "Total de custos operacionais"],
+    "Outros": ["Outros"],
+    "IRRF Corretagem": ["IRRF Corretagem"],
+    "Total Conta Investimento": ["Total Conta Investimento"],
+    "Total Conta Normal": ["Total Conta Normal"],
+    "Total líquido (#)": ["Total líquido (#)"],
+    "Total líquido da nota": ["Total líquido da nota"],
+    "Valor das operações": ["Valor dos negócios", "Vlr de Operação/Ajuste"]  # For consistency check
+}
 
+import unicodedata
 
 def remove_accents(text):
     return ''.join(c for c in unicodedata.normalize('NFD', text)
                    if unicodedata.category(c) != 'Mn')
 
-
 def classify_invoice_type(text: str) -> str:
     normalized = remove_accents(text.lower())
 
+    # Keep original A VISTA logic
     if any(x in normalized for x in [
         "negocios realizados", "resumo dos negocios", "negocios efetuados"
+    ]) and not any(term in normalized for term in [
+            "Mercadoria", "c/v mercadoria"
     ]):
         return "avista"
-    elif "c/v mercadoria vencimento" in normalized and "ajuste de posicao" in normalized:
+
+    # Keep original BM&F logic
+    if "c/v mercadoria vencimento" in normalized and "ajuste de posicao" in normalized:
         return "bmf"
+
+    # ✅ Add XP-specific fallback
+    #if "corretora xp" in normalized:
+    if any(term in normalized for term in [
+            "ajuste de posicao", "ajuste day trade", "taxa registro bmf",
+            "irrf day trade", "vencimento", "c/v mercadoria", "Mercadoria"
+        ]):
+            return "bmf"
+
     return "unknown"
 
 
 # === MULTI-DATE PDF HANDLING HELPERS ===
 
-def extract_dates_per_page(file_path):
-    dates = []
+def extract_date_and_type_per_page(file_path):
+    results = []
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
+            # Extract date
             found_date = None
             for pattern in [
                 r"Data\s+Preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})",
@@ -97,28 +137,32 @@ def extract_dates_per_page(file_path):
                 if match:
                     found_date = match.group(1)
                     break
-            dates.append(found_date)
-    return dates
+
+            # Extract type
+            tipo = classify_invoice_type(text)
+            results.append((found_date, tipo))
+    return results
 
 
-def group_pages_by_date(dates):
+def group_pages_by_date_and_type(date_type_pairs):
     groups = []
-    current_date = None
+    current_key = None
     current_pages = []
-    for i, date in enumerate(dates):
-        if date is None:
+
+    for i, (date, tipo) in enumerate(date_type_pairs):
+        if date is None or tipo == "unknown":
             continue
-        if date != current_date:
+        key = (date, tipo)
+        if key != current_key:
             if current_pages:
-                groups.append((current_date, current_pages))
-            current_date = date
+                groups.append((current_key, current_pages))
+            current_key = key
             current_pages = [i]
         else:
             current_pages.append(i)
     if current_pages:
-        groups.append((current_date, current_pages))
+        groups.append((current_key, current_pages))
     return groups
-
 
 def prepare_files_for_processing(pdf_files):
     output_dir = "split_by_date_temp"
@@ -126,26 +170,28 @@ def prepare_files_for_processing(pdf_files):
     files_to_process = []
 
     for file_path in pdf_files:
-        dates = extract_dates_per_page(file_path)
-        unique_dates = list(set(d for d in dates if d))
+        date_type_pairs = extract_date_and_type_per_page(file_path)
 
-        if len(unique_dates) <= 1:
+        unique_keys = list(set(k for k in date_type_pairs if k[0] and k[1] != "unknown"))
+
+        if len(unique_keys) <= 1:
             files_to_process.append(file_path)
         else:
-            groups = group_pages_by_date(dates)
+            groups = group_pages_by_date_and_type(date_type_pairs)
             reader = PdfReader(file_path)
-            for date_str, page_numbers in groups:
+            for (date_str, tipo), page_numbers in groups:
                 writer = PdfWriter()
                 for page_num in page_numbers:
                     writer.add_page(reader.pages[page_num])
-                new_filename = f"{os.path.splitext(os.path.basename(file_path))[0]}_{date_str.replace('/', '-')}.pdf"
+                filename_base = os.path.splitext(os.path.basename(file_path))[0]
+                tipo_str = tipo.upper().replace(" ", "")
+                new_filename = f"{filename_base}_{date_str.replace('/', '-')}_{tipo_str}.pdf"
                 out_path = os.path.join(output_dir, new_filename)
                 with open(out_path, "wb") as f:
                     writer.write(f)
                 files_to_process.append(out_path)
 
     return files_to_process
-
 
 @dataclass
 class BrokerConfig:
@@ -156,7 +202,6 @@ class BrokerConfig:
     trade_start_marker: str
     trade_end_marker: str
     signature_patterns: List[str]
-
 
 BTG_CONFIG = BrokerConfig(
     name="BTG",
@@ -210,8 +255,8 @@ AGORA_CONFIG = BrokerConfig(
 XP_CONFIG = BrokerConfig(
     name="XP",
     invoice_patterns=[
-        r"NOTA\s+DE\s+NEGOCIA[ÇC][AÃ]O\s*Nr\.?\s*nota\s*(\d+)",
-        r"Nr\.?\s*nota\s*(\d+)"
+        r"NOTA\s+DE\s+NEGOCIAÇÃO\s+Nr\.?\s*nota\s*(\d{3}[.,]?\d{3})",  # ← Precise
+        r"Nr\.?\s*nota\s*(\d{3}[.,]?\d{3})"
     ],
     date_patterns=[
         r"Data\s+preg[aã]o\s*(?:\n|\r|\s)*(\d{2}/\d{2}/\d{4})",
@@ -223,7 +268,6 @@ XP_CONFIG = BrokerConfig(
     signature_patterns=[
         r"XP\s+INVESTIMENTOS\s+CORRETORA", r"xpi\.com\.br"]
 )
-
 
 # === PARSER IMPLEMENTATION ===
 
@@ -239,6 +283,10 @@ class GenericParser:
         invoice = top_fields.get("invoice")
         if not invoice:
             invoice = self._extract_first_match(text, self.config.invoice_patterns)
+
+        # Normalize XP-style dotted invoice numbers like 733.612 → 733612
+        if invoice and isinstance(invoice, str):
+          invoice = re.sub(r"[^\d]", "", invoice)
 
         return {
             "broker": self.config.name,
@@ -370,18 +418,17 @@ class GenericParser:
         summary = {}
 
         # 1. Try to extract the last matching summary block
-        matches = list(
-            re.finditer(r"(Resumo dos Negócios.*?)(?=Resumo dos Negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
+        matches = list(re.finditer(r"(Resumo dos Negócios.*?)(?=Resumo dos Negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
         if not matches:
-            matches = list(
-                re.finditer(r"(Resumo de negócios.*?)(?=Resumo de negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
+            matches = list(re.finditer(r"(Resumo de negócios.*?)(?=Resumo de negócios|$)", text, flags=re.DOTALL | re.IGNORECASE))
         if not matches:
-            return {k: 0.0 for k in RESUMO_KEY_MAP}  # return zeros if nothing found
+            return {k: 0.0 for k in RESUMO_KEY_MAP_AVISTA}  # return zeros if nothing found
 
         last_summary_text = matches[-1].group(1)
         joined = re.sub(r"\s{2,}", " ", " ".join(last_summary_text.splitlines()))
 
-        for std_key, variants in RESUMO_KEY_MAP.items():
+        key_map = RESUMO_KEY_MAP_AVISTA if isinstance(self, AVistaParser) else RESUMO_KEY_MAP_BMF
+        for std_key, variants in key_map.items():
             found = False
             for var in variants:
                 if std_key == "Valor a ser Liquidado":
@@ -403,7 +450,7 @@ class GenericParser:
                 elif std_key == "IRRF sobre operações":
                     # Try to find IRRF above the "Outras" line
                     summary_lines = last_summary_text.splitlines()
-                    outras_variants = RESUMO_KEY_MAP["Outras"]
+                    outras_variants = RESUMO_KEY_MAP_AVISTA["Outras"]
                     found_line_index = -1
 
                     for i, line in enumerate(summary_lines):
@@ -460,30 +507,11 @@ class GenericParser:
         except:
             return 0.0
 
-
 class AVistaParser(GenericParser):
+
     pass  # Inherits the default behavior
 
-
 class BMFParser(GenericParser):
-
-    def parse_pdf(self, file_path: str) -> Dict:
-        text = self._extract_text(file_path)
-        top_fields = self._extract_top_table_fields(text)
-        cpf = self._extract_top_client_fields(text)
-
-        invoice = top_fields.get("invoice")
-        if not invoice:
-            invoice = self._extract_first_match(text, self.config.invoice_patterns)
-
-        return {
-            "broker": self.config.name,
-            "invoice": invoice,
-            "date": self._extract_first_match(text, self.config.date_patterns),
-            "client_cpf": cpf,
-            "trades": self._extract_trades(text),
-            "summary": self._extract_summary_values(text, file_path)
-        }
 
     def _extract_trades(self, text: str) -> List[Dict]:
         trades = []
@@ -509,6 +537,116 @@ class BMFParser(GenericParser):
                     print(f"⚠️ BM&F trade parse error: {line}\n{e}")
         return trades
 
+    def parse_pdf(self, file_path: str) -> Dict:
+        text = self._extract_text(file_path)
+        top_fields = self._extract_top_table_fields(text)
+        cpf = self._extract_top_client_fields(text)
+
+        invoice = top_fields.get("invoice")
+        if not invoice:
+            invoice = self._extract_first_match(text, self.config.invoice_patterns)
+
+        return {
+            "broker": self.config.name,
+            "invoice": invoice,
+            "date": self._extract_first_match(text, self.config.date_patterns),
+            "client_cpf": cpf,
+            "trades": self._extract_trades(text),
+            "summary": self._extract_summary_values(text, file_path)
+        }
+
+# === BROKER-SPECIFIC PARSERS ===
+
+# --- XP ---
+class XPAvistaParser(AVistaParser):
+    pass  # Inherits default AVista behavior for now
+
+class XPBMFParser(BMFParser):
+
+    def parse_pdf(self, file_path: str) -> Dict:
+      text = self._extract_text(file_path)
+      top_fields = self._extract_top_table_fields(text)
+      cpf = self._extract_top_client_fields(text)
+
+      invoice = self._extract_invoice_number(text)
+      date = self._extract_first_match(text, self.config.date_patterns)
+
+      return {
+          "broker": self.config.name,
+          "invoice": invoice,
+          "date": date,
+          "client_cpf": cpf,
+          "trades": self._extract_trades(text),
+          "summary": self._extract_summary_values(text, file_path)
+      }
+
+    def _extract_invoice_number(self, text: str) -> str:
+        # Look for pattern: "NOTA DE NEGOCIAÇÃO Nr. nota" followed by the number
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if re.search(r"NOTA\s+DE\s+NEGOCIAÇÃO\s+Nr\.?\s*nota", line, re.IGNORECASE):
+                # Try next line
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1]
+                    match = re.search(r"(\d{3}[.,]?\d{3})", next_line)
+                    if match:
+                        return re.sub(r"[^\d]", "", match.group(1))  # Normalize "733.612" → "733612"
+        # Fallback if not found
+        return self._extract_first_match(text, self.config.invoice_patterns)
+
+    def _extract_trades(self, text: str) -> List[Dict]:
+        trades = []
+        lines = text.splitlines()
+
+        for line in lines:
+            tokens = line.strip().split()
+            if len(tokens) < 10:
+                continue
+
+            if (
+                re.match(r"^[CV]$", tokens[0]) and
+                re.search(r"\d{2}/\d{2}/\d{4}", tokens[3])
+            ):
+                try:
+                    mercadoria = f"{tokens[1]} {tokens[2]}"
+                    vencimento = tokens[3].replace('@', '')  # Fix for @18/08/2021
+                    quantidade = int(tokens[4].replace('.', ''))
+                    preco_ajuste = self._clean_numeric(tokens[5])
+
+                    # Handle possible split "DAY TRADE"
+                    if tokens[6] == "DAY" and tokens[7] == "TRADE":
+                        tipo_negocio = "DAY TRADE"
+                        valor_operacao = self._clean_numeric(tokens[8])
+                        dc = tokens[9]
+                        taxa_operacional = self._clean_numeric(tokens[10])
+                    else:
+                        tipo_negocio = tokens[6]
+                        valor_operacao = self._clean_numeric(tokens[7])
+                        dc = tokens[8]
+                        taxa_operacional = self._clean_numeric(tokens[9])
+
+                    trade = {
+                        "Tipo": "BM&F",
+                        "C/V": tokens[0],
+                        "Mercadoria": mercadoria,
+                        "Vencimento": vencimento,
+                        "Quantidade": quantidade,
+                        "Preço / Ajuste": preco_ajuste,
+                        "Tipo Negócio": tipo_negocio,
+                        "Valor Operação": valor_operacao,
+                        "D/C": dc,
+                        "Taxa Operacional": taxa_operacional
+                    }
+                    trades.append(trade)
+
+                except Exception as e:
+                    print(f"⚠️ XP BM&F trade parse error: {line}\n{e}")
+                    continue
+
+        return trades
+
+
+
     def _extract_summary_values(self, text: str, file_path: str) -> Dict[str, float]:
         summary = {}
 
@@ -533,13 +671,13 @@ class BMFParser(GenericParser):
             "Total Conta Investimento": (3, 2),
             "Total Conta Normal": (3, 3),
             "Total líquido (#)": (3, 4),
-            "Total líquido da nota": (3, 5)
+            "Total líquido da nota": (3, 5),
+            "Valor das operações": (0, 4)  # mirror from "Valor dos negócios"
         }
 
-        # Init both value and letter (D/C) columns
         for key in LABEL_POSITIONS:
             summary[key] = 0.0
-            summary[f"{key} AAAA"] = ""  # This will store "D" or "C"
+            summary[f"{key} AAAA"] = ""
 
         try:
             with pdfplumber.open(file_path) as pdf:
@@ -557,23 +695,19 @@ class BMFParser(GenericParser):
                             label_blocks[block_index] = re.split(r"\s{2,}", line)
                         elif re.search(r"\d", line) and block_index >= 0:
                             clean = re.sub(r"[^\d.,\sD]", "", line)
-                            number_blocks[block_index] += [val.strip() for val in clean.split() if
-                                                           re.search(r"[\d,]", val)]
+                            number_blocks[block_index] += [val.strip() for val in clean.split() if re.search(r"[\d,]", val)]
 
-                    # Special cleaning for the last line block (block 3)
+                    # Special cleaning for block 3
                     if len(number_blocks) > 3:
-                        block_3_lines = number_blocks[3]
-                        combined = " ".join(block_3_lines)
+                        combined = " ".join(number_blocks[3])
                         number_blocks[3] = re.findall(r"[\d.,]+", combined)
 
-                    # Extract values and D/C flags# Extract values and D/C flags
                     for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
                         try:
                             value_str = number_blocks[block_idx][pos_idx]
                             value = self._clean_numeric(value_str)
-                            letter = "C"  # Default
+                            letter = "C"
 
-                            # Search line to determine if 'D' appears after value_str
                             for line in lines:
                                 if value_str in line:
                                     after = line.split(value_str, 1)[1]
@@ -588,6 +722,95 @@ class BMFParser(GenericParser):
                             summary[label] = 0.0
                             summary[f"{label} AAAA"] = ""
 
+        except Exception as e:
+            print(f"❌ Failed to extract BM&F summary with positional logic: {e}")
+            for label in LABEL_POSITIONS:
+                summary[label] = 0.0
+                summary[f"{label} AAAA"] = ""
+
+        self.last_summary_columns = list(summary.keys())  # ✅ Needed for D/C column control
+        return summary
+
+# --- BTG ---
+class BTGAvistaParser(AVistaParser):
+    pass  # Inherits default AVista behavior for now
+
+class BTGBMFParser(BMFParser):
+
+    def _extract_summary_values(self, text: str, file_path: str) -> Dict[str, float]:
+        summary = {}
+
+        LABEL_POSITIONS = {
+            "Venda disponível": (0, 0),
+            "Compra disponível": (0, 1),
+            "Venda Opções": (0, 2),
+            "Compra Opções": (0, 3),
+            "Valor dos negócios": (0, 4),
+            "IRRF": (1, 0),
+            "IRRF Day Trade (proj.)": (1, 1),
+            "Taxa operacional": (1, 2),
+            "Taxa registro BM&F": (1, 3),
+            "Taxas BM&F (emol+f.gar)": (1, 4),
+            "Outros Custos": (2, 0),
+            "ISS": (2, 1),
+            "Ajuste de posição": (2, 2),
+            "Ajuste day trade": (2, 3),
+            "Total das despesas": (2, 4),
+            "Outros": (3, 0),
+            "IRRF Corretagem": (3, 1),
+            "Total Conta Investimento": (3, 2),
+            "Total Conta Normal": (3, 3),
+            "Total líquido (#)": (3, 4),
+            "Total líquido da nota": (3, 5),
+            "Valor das operações": (0, 4)  # mirror from "Valor dos negócios"
+        }
+
+        for key in LABEL_POSITIONS:
+            summary[key] = 0.0
+            summary[f"{key} AAAA"] = ""
+
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text() or ""
+                    lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+
+                    label_blocks = [[] for _ in range(4)]
+                    number_blocks = [[] for _ in range(4)]
+                    block_index = -1
+
+                    for line in lines:
+                        if any(label in line for label in LABEL_POSITIONS):
+                            block_index += 1
+                            label_blocks[block_index] = re.split(r"\s{2,}", line)
+                        elif re.search(r"\d", line) and block_index >= 0:
+                            clean = re.sub(r"[^\d.,\sD]", "", line)
+                            number_blocks[block_index] += [val.strip() for val in clean.split() if re.search(r"[\d,]", val)]
+
+                    # Special cleaning for block 3
+                    if len(number_blocks) > 3:
+                        combined = " ".join(number_blocks[3])
+                        number_blocks[3] = re.findall(r"[\d.,]+", combined)
+
+                    for label, (block_idx, pos_idx) in LABEL_POSITIONS.items():
+                        try:
+                            value_str = number_blocks[block_idx][pos_idx]
+                            value = self._clean_numeric(value_str)
+                            letter = "C"
+
+                            for line in lines:
+                                if value_str in line:
+                                    after = line.split(value_str, 1)[1]
+                                    if re.search(r'\bD\b', after):
+                                        letter = "D"
+                                    break
+
+                            summary[label] = abs(value)
+                            summary[f"{label} AAAA"] = letter if abs(value) > 0 else ""
+
+                        except (IndexError, ValueError):
+                            summary[label] = 0.0
+                            summary[f"{label} AAAA"] = ""
 
         except Exception as e:
             print(f"❌ Failed to extract BM&F summary with positional logic: {e}")
@@ -595,13 +818,8 @@ class BMFParser(GenericParser):
                 summary[label] = 0.0
                 summary[f"{label} AAAA"] = ""
 
-        # Mirror value for consistency checks
-        if "Valor dos negócios" in summary:
-            summary["Valor das operações"] = summary["Valor dos negócios"]
-            summary["Valor das operações AAAA"] = summary["Valor dos negócios AAAA"]
-
+        self.last_summary_columns = list(summary.keys())  # ✅ Needed for D/C column control
         return summary
-
 
 # === PROCESS MULTIPLE FILES ===
 
@@ -612,6 +830,16 @@ class TradeProcessor:
         GenericParser(AGORA_CONFIG),
         GenericParser(XP_CONFIG),
     ]
+
+    BROKER_TYPE_TO_PARSER = {
+        ("XP", "avista"): XPAvistaParser,
+        ("XP", "bmf"): XPBMFParser,
+        ("BTG", "avista"): BTGAvistaParser,
+        ("BTG", "bmf"): BTGBMFParser,
+        ("ITAU", "avista"): AVistaParser,
+        ("AGORA", "avista"): AVistaParser,
+        # Add more as needed
+    }
 
     @classmethod
     def process_pdfs(cls, file_paths: List[str]):
@@ -626,14 +854,16 @@ class TradeProcessor:
                 for parser in cls.PARSERS:
                     if cls._match_broker_by_signature(text, parser):
                         invoice_type = classify_invoice_type(text)
+                        broker_name = parser.config.name.upper()
 
-                        if invoice_type == "avista":
-                            matched_parser = AVistaParser(parser.config)
-                        elif invoice_type == "bmf":
-                            matched_parser = BMFParser(parser.config)
-                        else:
-                            print(f"⚠️ Unknown invoice type for {file_path}")
-                            matched_parser = parser  # fallback
+                        parser_class = cls.BROKER_TYPE_TO_PARSER.get(
+                            (broker_name, invoice_type),
+                            AVistaParser if invoice_type == "avista" else BMFParser  # fallback default
+                        )
+
+                        matched_parser = parser_class(parser.config)
+
+                        print(f"🔍 Using {parser_class.__name__} for broker '{broker_name}' and type '{invoice_type}'")
                         break
 
                 if not matched_parser:
@@ -656,13 +886,13 @@ class TradeProcessor:
                     all_trades.append(trade)
 
                 if summary:
-                    summary_row = {
-                        "invoice": invoice,
-                        "broker": result["broker"],
-                        "Tipo": trade.get("Tipo", "Unknown"),  # Add 'Tipo' to summary row
-                        **summary
-                    }
-                    all_summaries.append(summary_row)
+                  summary_row = {
+                      "invoice": invoice,
+                      "broker": result["broker"],
+                      "Tipo": trade.get("Tipo", "Unknown"), # Add 'Tipo' to summary row
+                      **summary
+                  }
+                  all_summaries.append(summary_row)
 
             except Exception as e:
                 print(f"❌ Error processing {file_path}: {e}")
@@ -687,6 +917,7 @@ class TradeProcessor:
         trades, summaries = TradeProcessor.process_pdfs(prepared_files)
         df_trades = pd.DataFrame(trades)
 
+        # === Valor de referência principal para negócios individuais ===
         if "Valor Operação" in df_trades.columns and "Valor Operação / Ajuste" in df_trades.columns:
             df_trades["valor_trades"] = df_trades.apply(
                 lambda row: row["Valor Operação"] if str(row.get("Tipo", "")).strip().lower() == "bm&f" else row[
@@ -700,66 +931,76 @@ class TradeProcessor:
         else:
             df_trades["valor_trades"] = 0
 
+        # === Consistência: ajusta BM&F com D/C == C para valor negativo
+        df_trades["valor_trades_consistency"] = df_trades["valor_trades"]
+        if not df_trades.empty and "Tipo" in df_trades.columns and "D/C" in df_trades.columns:
+            bmf_mask = df_trades["Tipo"].str.lower().str.strip() == "bm&f"
+            c_mask = df_trades["D/C"].str.upper().str.strip() == "C"
+            df_trades.loc[bmf_mask & c_mask, "valor_trades_consistency"] *= -1
+
         df_summary = pd.DataFrame(summaries).dropna(how='all')
 
-        # Drop AAAA columns that are fully empty (i.e., no "C" or "D")
+        # === Limpa colunas AAAA que estão totalmente vazias
         if not df_summary.empty:
             for col in df_summary.columns:
-                if col.endswith("AAAA"):
-                    if df_summary[col].replace("", pd.NA).isna().all():
-                        df_summary.drop(columns=[col], inplace=True)
+                if col.endswith("AAAA") and df_summary[col].replace("", pd.NA).isna().all():
+                    df_summary.drop(columns=[col], inplace=True)
 
-        # === CONSISTENCY SHEET (with broker column, handles missing summary/trades) ===
+        # === CONSISTÊNCIA ENTRE NEGÓCIOS E RESUMO ===
         if "invoice" in df_trades.columns or "invoice" in df_summary.columns:
 
-            trade_value_column = "valor_trades"
+            #trade_value_column = "valor_trades"
+            trade_value_column = "valor_trades_consistency"
 
-            if trade_value_column:
-                # 1. Get sum of trades per invoice + broker
-                trade_totals = (
-                    df_trades.groupby(["invoice", "broker", "Tipo"])[trade_value_column]
-                    .sum()
-                    .reset_index()
+
+            # 1. Totais de negócios com valor ajustado
+            trade_totals = (
+                df_trades.groupby(["invoice", "broker", "Tipo"])["valor_trades_consistency"]
+                .sum()
+                .reset_index()
+                .rename(columns={"valor_trades_consistency": trade_value_column})
+            )
+            print(trade_totals)
+
+            # 2. Valor total do resumo (usa diferentes possíveis colunas)
+            summary_candidates = ["Valor das operações", "Valor dos negócios"]
+            valor_col = None
+            for col in summary_candidates:
+                if col in df_summary.columns:
+                    valor_col = col
+                    break
+
+            if valor_col:
+                resumo_valores = df_summary[["invoice", "broker", "Tipo", valor_col]].rename(
+                    columns={valor_col: "valor_das_operacoes"}
                 )
 
-                # 2. Get summary values per invoice + broker using BOTH possible keys
-                summary_candidates = ["Valor das operações", "Valor dos negócios"]
-                valor_col = None
-                for col in summary_candidates:
-                    if col in df_summary.columns:
-                        valor_col = col
-                        break
+                all_invoices = pd.DataFrame(
+                    pd.concat([
+                        trade_totals[["invoice", "broker", "Tipo"]],
+                        resumo_valores[["invoice", "broker", "Tipo"]]
+                    ]).drop_duplicates(), columns=["invoice", "broker", "Tipo"]
+                )
 
-                if valor_col:
-                    resumo_valores = df_summary[["invoice", "broker", "Tipo", valor_col]].rename(
-                        columns={valor_col: "valor_das_operacoes"}
-                    )
+                df_consistency = all_invoices \
+                    .merge(trade_totals, on=["invoice", "broker", "Tipo"], how="left") \
+                    .merge(resumo_valores, on=["invoice", "broker", "Tipo"], how="left")
 
-                    all_invoices = pd.DataFrame(
-                        pd.concat([
-                            trade_totals[["invoice", "broker", "Tipo"]],
-                            resumo_valores[["invoice", "broker", "Tipo"]]
-                        ]).drop_duplicates(), columns=["invoice", "broker", "Tipo"]
-                    )
+                df_consistency[trade_value_column] = df_consistency[trade_value_column].fillna(0)
+                df_consistency["valor_das_operacoes"] = df_consistency["valor_das_operacoes"].fillna(0)
+                df_consistency["Diferença"] = (
+                    df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]
+                ).round(2)
+                df_consistency["Status"] = df_consistency["Diferença"].apply(
+                    lambda x: "OK" if abs(x) < 0.01 else "Inconsistência"
+                )
 
-                    df_consistency = all_invoices \
-                        .merge(trade_totals, on=["invoice", "broker", "Tipo"], how="left") \
-                        .merge(resumo_valores, on=["invoice", "broker", "Tipo"], how="left")
-
-                    df_consistency[trade_value_column] = df_consistency[trade_value_column].fillna(0)
-                    df_consistency["valor_das_operacoes"] = df_consistency["valor_das_operacoes"].fillna(0)
-                    df_consistency["Diferença"] = (
-                            df_consistency[trade_value_column] - df_consistency["valor_das_operacoes"]).round(2)
-                    df_consistency["Status"] = df_consistency["Diferença"].apply(
-                        lambda x: "OK" if abs(x) < 0.01 else "Inconsistência")
-                else:
-                    df_consistency = pd.DataFrame()
             else:
                 df_consistency = pd.DataFrame()
         else:
             df_consistency = pd.DataFrame()
 
-        # === RENAME COLUMNS FOR EXPORT ===
+        # === RENOMEIA COLUNAS PARA EXPORTAÇÃO ===
         df_trades.rename(columns={
             "invoice": "Número da Nota", "broker": "Corretora",
             "client_cpf": "CPF", "date": "Data da Operação"
@@ -774,8 +1015,12 @@ class TradeProcessor:
                 "invoice": "Número da Nota", "broker": "Corretora"
             }, inplace=True)
 
-        # === PREPARE OUTPUT ===
-        cpf_value = df_trades["CPF"].iloc[0].replace('.', '').replace('-', '')
+        # === CPF para nome de arquivo
+        cpf_value = (
+            df_trades["CPF"].iloc[0].replace('.', '').replace('-', '')
+            if "CPF" in df_trades.columns and not df_trades.empty
+            else "unknown"
+        )
         output_file = os.path.join("tmp", f"trades_output - {cpf_value}.xlsx")
 
         def autofit_columns(worksheet):
@@ -870,54 +1115,29 @@ class TradeProcessor:
 
                     block = block.sort_values(by=["Corretora", "Número da Nota"])
 
+                    # === Get standardized columns from correct RESUMO_KEY_MAP
                     if tipo_lower == "a vista":
-                        base_columns = [
-                            "Corretora", "Número da Nota", "Debêntures", "Vendas à Vista", "Compras à Vista",
-                            "Opções - compras", "Opções - vendas", "Operações à termo",
-                            "Valor das oper. c/ títulos públ. (v. nom.)", "Valor das operações",
-                            "Valor líquido das operações",
-                            "Taxa de liquidação", "Taxa de Registro", "Total CBLC", "Taxa de termo/opções",
-                            "Taxa A.N.A.",
-                            "Emolumentos", "Total Bovespa / Soma", "Clearing", "Execução", "Execução casa",
-                            "Corretagem",
-                            "ISS", "IRRF sobre operações", "Outras", "Total corretagem / Despesas",
-                            "Valor a ser Liquidado"
-                        ]
-
-                        # Interleave AAAA columns only if they exist
-                        block_columns = []
-                        for col in base_columns:
-                            if col in block.columns:
-                                block_columns.append(col)
-                                aaaa_col = f"{col} AAAA"
-                                if aaaa_col in block.columns:
-                                    block_columns.append(aaaa_col)
-
+                        base_columns = list(RESUMO_KEY_MAP_AVISTA.keys())
                     elif tipo_lower == "bm&f":
-                        base_cols = [
-                            "Venda disponível", "Compra disponível", "Venda Opções", "Compra Opções",
-                            "Valor dos negócios",
-                            "IRRF", "IRRF Day Trade (proj.)", "Taxa operacional", "Taxa registro BM&F",
-                            "Taxas BM&F (emol+f.gar)", "Outros Custos", "ISS", "Ajuste de posição", "Ajuste day trade",
-                            "Total das despesas", "Outros", "IRRF Corretagem", "Total Conta Investimento",
-                            "Total Conta Normal", "Total líquido (#)", "Total líquido da nota"
-                        ]
+                        base_columns = list(RESUMO_KEY_MAP_BMF.keys())
+                    else:
+                        base_columns = block.columns.tolist()
 
-                        block_columns = ["Corretora", "Número da Nota"]
-                        for col in base_cols:
+                    # Interleave AAAA columns only if they exist
+                    block_columns = ["Corretora", "Número da Nota"]
+                    for col in base_columns:
+                        if col in block.columns:
                             block_columns.append(col)
                             aaaa_col = f"{col} AAAA"
                             if aaaa_col in block.columns:
                                 block_columns.append(aaaa_col)
-                    else:
-                        block_columns = block.columns.tolist()
 
                     block = block[[col for col in block_columns if col in block.columns]]
 
                     ws_resumo.cell(row=row_idx, column=1, value=f"*** {tipo_lower.upper()} ***").font = Font(bold=True)
                     row_idx += 2
 
-                    # Labels
+                    # Labels (skip header for AAAA columns)
                     for col_idx, col_name in enumerate(block.columns, start=1):
                         label = "" if "AAAA" in col_name else col_name
                         ws_resumo.cell(row=row_idx, column=col_idx, value=label).font = Font(bold=True)
@@ -942,7 +1162,7 @@ class TradeProcessor:
                 if "Tipo" in df_consistency.columns:
                     tipos_consistencia = df_consistency["Tipo"].dropna().unique().tolist()
                 else:
-                    tipos_consistencia = ["Unknown"]  # Default if 'Tipo' is not in consistency
+                    tipos_consistencia = ["Unknown"]
 
                 for tipo in tipos_consistencia:
                     tipo_lower = tipo.strip().lower()
@@ -952,62 +1172,73 @@ class TradeProcessor:
                         continue
 
                     block = block.sort_values(by=["Corretora", "Número da Nota"])
-
                     block_columns = ["Corretora", "Número da Nota", "Tipo"]
 
-                    # Show correct raw value column for each Tipo
+                    # === Usar coluna ajustada para negócios individuais
+                    temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
 
                     if tipo_lower == "bm&f":
-                        temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
-                        if "Valor Operação" in temp.columns:
-                            grouped = temp.groupby(["Número da Nota", "Corretora"])[
-                                "Valor Operação"].sum().reset_index()
+                        if "valor_trades_consistency" in temp.columns:
+                            grouped = (
+                                temp.groupby(["Número da Nota", "Corretora"])["valor_trades_consistency"]
+                                .apply(lambda x: abs(x.sum()))
+                                .reset_index(name="Negócios Individuais")
+                            )
                             block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
-                            block_columns.append("Valor Operação")
+                            block_columns.append("Negócios Individuais")
 
                     elif tipo_lower == "a vista":
-                        temp = df_trades[df_trades["Tipo"].str.lower().str.strip() == tipo_lower]
                         if "Valor Operação / Ajuste" in temp.columns:
-                            grouped = temp.groupby(["Número da Nota", "Corretora"])[
-                                "Valor Operação / Ajuste"].sum().reset_index()
+                            grouped = temp.groupby(["Número da Nota", "Corretora"])["Valor Operação / Ajuste"].sum().reset_index()
+                            grouped.rename(columns={"Valor Operação / Ajuste": "Negócios Individuais"}, inplace=True)
                             block = block.merge(grouped, on=["Número da Nota", "Corretora"], how="left")
-                            block_columns.append("Valor Operação / Ajuste")
+                            block_columns.append("Negócios Individuais")
+
+                    if "Negócios Individuais" in block.columns and "valor_das_operacoes" in block.columns:
+                        block["Diferença"] = (
+                            block["Negócios Individuais"] - block["valor_das_operacoes"]
+                        ).round(2)
+                        block["Status"] = block["Diferença"].apply(
+                            lambda x: "OK" if abs(x) < 0.01 else "Inconsistência"
+                        )
 
                     block_columns += ["valor_das_operacoes", "Diferença", "Status"]
                     block = block[[col for col in block_columns if col in block.columns]]
 
+                    # === Título da seção
                     ws_consistencia.cell(row=row_idx, column=1, value=f"*** {tipo.upper()} ***").font = Font(bold=True)
                     row_idx += 2
 
-                    # === Cabeçalhos formatados com \n e alinhamento central
+                    # === Cabeçalhos com formatação
                     for col_idx, col_name in enumerate(block.columns, start=1):
                         new_label = col_name
 
-                        if tipo_lower == "a vista":
-                            if col_name == "Valor Operação / Ajuste":
-                                new_label = "Valor Operação / Ajuste\n (Negócios Individuais)"
-                            elif col_name == "valor_das_operacoes":
-                                new_label = "Valor das Operações\n (Resumo da Nota)"
-                        elif tipo_lower == "bm&f":
-                            if col_name == "Valor Operação":
+                        if col_name == "Negócios Individuais":
+                            if tipo_lower == "bm&f":
                                 new_label = "Valor Operação\n (Negócios Individuais)"
-                            elif col_name == "valor_das_operacoes":
-                                new_label = "Valor das Operações\n (Resumo da Nota)"
+                            elif tipo_lower == "a vista":
+                                new_label = "Valor Operação / Ajuste\n (Negócios Individuais)"
+
+                        elif col_name == "valor_das_operacoes":
+                            new_label = "Valor das Operações\n (Resumo da Nota)"
 
                         cell = ws_consistencia.cell(row=row_idx, column=col_idx, value=new_label)
                         cell.font = Font(bold=True)
                         cell.alignment = Alignment(wrap_text=True, horizontal="center")
 
-                    row_idx += 1  # Avança para a linha de dados
-                    # === Dados da consistência
+                    row_idx += 1
+
+                    # === Linhas de dados
                     for _, row in block.iterrows():
                         for col_idx, col_name in enumerate(block.columns, start=1):
                             ws_consistencia.cell(row=row_idx, column=col_idx, value=row[col_name])
                         row_idx += 1
 
-                    row_idx += 1  # Espaçamento entre blocos
+                    row_idx += 1  # Espaçamento entre seções
 
-                    # === Autoajuste de colunas no final
-                    autofit_columns(ws_consistencia)
+                autofit_columns(ws_consistencia)
+
+        pd.DataFrame().to_excel(writer, sheet_name="dummy", index=False)
+
 
         return df_trades
